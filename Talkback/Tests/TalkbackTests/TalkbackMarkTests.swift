@@ -36,19 +36,43 @@ final class TalkbackMarkTests: XCTestCase {
         XCTAssertEqual(TalkbackMark.white.components!, [1, 1, 1, 1])
     }
 
-    func testBadgeHasBlackInkWhiteKeylineAndOrangeBackground() throws {
+    func testMenuLogoHasOnlyBlackInkInBothStates() throws {
         let logo = try XCTUnwrap(TalkbackMark.loadLogoMask(from: logoURL))
-        let context = CGContext(data: nil, width: 320, height: 200, bitsPerComponent: 8,
+        for listening in [true, false] {
+            let context = CGContext(data: nil, width: 320, height: 200, bitsPerComponent: 8,
+                                    bytesPerRow: 1280, space: TalkbackMark.colorSpace,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.setShouldAntialias(false)
+            TalkbackMark.drawBadge(in: CGRect(x: 0, y: 0, width: 320, height: 200), context: context, listening: listening, logo: logo)
+            let bytes = context.data!.assumingMemoryBound(to: UInt8.self)
+            let background: [Double] = listening ? [230, 140, 63] : [199, 199, 199]
+            var hasBlack = false
+            for offset in stride(from: 0, to: 320 * 200 * 4, by: 4) {
+                if bytes[offset + 3] == 0 { continue }
+                let rgb = (0..<3).map { Double(bytes[offset + $0]) }
+                if rgb == [0, 0, 0] { hasBlack = true }
+                let coverage = rgb[0] / background[0]
+                XCTAssertLessThanOrEqual(coverage, 1, "No white fill or border in the menu logo")
+                XCTAssertEqual(rgb[1], background[1] * coverage, accuracy: 1.5)
+                XCTAssertEqual(rgb[2], background[2] * coverage, accuracy: 1.5)
+            }
+            XCTAssertTrue(hasBlack)
+        }
+    }
+
+    func testAppIconKeepsBlackInkWhiteKeylineAndOrangeBackground() throws {
+        let logo = try XCTUnwrap(TalkbackMark.loadLogoMask(from: logoURL))
+        let context = CGContext(data: nil, width: 320, height: 320, bitsPerComponent: 8,
                                 bytesPerRow: 1280, space: TalkbackMark.colorSpace,
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         // Disable only edge antialiasing to test the authored paint palette.
         context.setShouldAntialias(false)
-        TalkbackMark.drawBadge(in: CGRect(x: 0, y: 0, width: 320, height: 200), context: context, listening: true, logo: logo)
+        TalkbackMark.drawAppIcon(in: CGRect(x: 0, y: 0, width: 320, height: 320), context: context, logo: logo)
         let bytes = context.data!.assumingMemoryBound(to: UInt8.self)
         var hasBlack = false
         var hasOrange = false
         var whitePixels = 0
-        for offset in stride(from: 0, to: 320 * 200 * 4, by: 4) {
+        for offset in stride(from: 0, to: 320 * 320 * 4, by: 4) {
             let pixel = Array(UnsafeBufferPointer(start: bytes + offset, count: 4))
             if pixel == [0, 0, 0, 0] { continue }
             if pixel == [0, 0, 0, 255] { hasBlack = true; continue }

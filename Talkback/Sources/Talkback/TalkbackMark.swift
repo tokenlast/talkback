@@ -1,7 +1,7 @@
 import AppKit
 import ImageIO
 
-/// The supplied artwork with a solid white keyline, never a drop shadow.
+/// Black-only menu artwork; the app icon retains its solid white keyline.
 enum TalkbackMark {
     struct Logo {
         let ink: CGImage
@@ -120,7 +120,7 @@ enum TalkbackMark {
         context.setFillColor(background)
         context.addPath(CGPath(roundedRect: CGRect(x: 1, y: 1, width: 30, height: 18), cornerWidth: 9, cornerHeight: 9, transform: nil))
         context.fillPath()
-        drawMicrophone(in: CGRect(x: 8, y: 2, width: 16, height: 16), context: context, logo: logo)
+        drawMicrophone(in: CGRect(x: 8, y: 2, width: 16, height: 16), context: context, logo: logo, whiteBorder: false)
     }
 
     static func drawAppIcon(in rect: CGRect, context: CGContext, logo: Logo? = nil) {
@@ -130,13 +130,15 @@ enum TalkbackMark {
         let face = rect.insetBy(dx: rect.width * 0.06, dy: rect.height * 0.06)
         context.addPath(CGPath(roundedRect: face, cornerWidth: rect.width * 0.20, cornerHeight: rect.height * 0.20, transform: nil))
         context.fillPath()
-        drawMicrophone(in: rect.insetBy(dx: rect.width * 0.13, dy: rect.height * 0.13), context: context, logo: logo)
+        drawMicrophone(in: rect.insetBy(dx: rect.width * 0.13, dy: rect.height * 0.13), context: context, logo: logo, whiteBorder: true)
     }
 
-    private static func drawMicrophone(in rect: CGRect, context: CGContext, logo: Logo?) {
+    private static func drawMicrophone(in rect: CGRect, context: CGContext, logo: Logo?, whiteBorder: Bool) {
         guard let logo = logo ?? bundledLogo else { return }
-        let margin = rect.width * (logo.outlineScale - 1) / 2
-        paint(logo.outline, in: rect.insetBy(dx: -margin, dy: -margin), color: white, context: context)
+        if whiteBorder {
+            let margin = rect.width * (logo.outlineScale - 1) / 2
+            paint(logo.outline, in: rect.insetBy(dx: -margin, dy: -margin), color: white, context: context)
+        }
         paint(logo.ink, in: rect, color: black, context: context)
     }
 
