@@ -9,6 +9,63 @@ from voice_gate import admit_voice
 
 
 class VoiceTests(unittest.TestCase):
+    def test_polite_requests_accept_dictated_question_marks(self):
+        for prefix in ("Can you", "Could you", "Would you", "Okay, can you", "Please, can you"):
+            for ending in ("", ".", "?"):
+                text = prefix + " start a new track in instruments" + ending
+                with self.subTest(text=text):
+                    value = admit_voice(text)
+                    self.assertEqual(value, "start a new track in instruments")
+                    intent = parse_local(value, sample_snapshot())
+                    self.assertEqual(intent.action, Action.ADD_MIDI_TRACK)
+                    self.assertEqual(intent.group_name, "instruments")
+                    self.assertIsNone(extract_plugin_request(value, sample_snapshot()))
+
+    def test_questions_and_negated_polite_requests_stay_blocked(self):
+        for text in ("How do I create a new track?", "Can you tell me how to create a track?",
+                     "Can you not start a new track?", "Could you create a track later?",
+                     "Can you? Start a new track", "Mute this track?", 'Can you say "mute this track"?'):
+            with self.subTest(text=text):
+                self.assertIsNone(admit_voice(text))
+
+    def test_plain_track_creation_is_not_a_plugin(self):
+        for text, kind, group in (("Create a new MIDI track", "midi", None),
+                                  ("Start a new track", "midi", None),
+                                  ("Create a new MIDI track in Instruments", "midi", "instruments"),
+                                  ("Add an audio track inside the group Drums", "audio", "drums")):
+            with self.subTest(text=text):
+                intent = parse_local(text, sample_snapshot())
+                self.assertEqual(intent.track_kind, kind)
+                self.assertEqual(intent.group_name, group)
+                self.assertIsNone(extract_plugin_request(text, sample_snapshot()))
+        self.assertIsNone(parse_local("start track", sample_snapshot()))
+
+    def test_spoken_group_track_creation_reaches_script_without_cloud(self):
+        snapshot = sample_snapshot()
+        bridge = mock.Mock()
+        requester = mock.Mock(side_effect=AssertionError("Network must not be used"))
+        service = TalkbackService(bridge=bridge, snapshot=snapshot, requester=requester)
+        service.reader = mock.Mock()
+        service.reader.read.return_value = (snapshot, 0)
+        with mock.patch("daemon.plugin_script.ping", return_value=True), \
+             mock.patch("daemon.plugin_script.add_track", return_value={"ok": True}) as add, \
+             mock.patch("daemon.plugin_script.list_plugins", side_effect=AssertionError("Not a plugin request")):
+            reply = service.process({"id": "test", "source": "voice", "text": "Can you start a new track in instruments?"})
+        self.assertEqual(reply["kind"], "result", reply)
+        add.assert_called_once_with("midi", None, None, group_name="instruments")
+        requester.assert_not_called()
+        self.assertEqual(bridge.mock_calls, [])
+
+    def test_group_track_creation_never_falls_back_to_ungrouped_creation(self):
+        bridge = mock.Mock()
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot())
+        with mock.patch("daemon.plugin_script.ping", return_value=False), \
+             mock.patch("daemon.plugin_script.add_track") as add:
+            reply = service.process({"id": "test", "source": "voice", "text": "Can you start a new track in instruments?"})
+        self.assertEqual(reply["kind"], "error", reply)
+        add.assert_not_called()
+        self.assertEqual(bridge.mock_calls, [])
+
     def test_recording_modes_and_transport_order(self):
         from dataclasses import replace
         from actions import ACTIONS

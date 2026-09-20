@@ -29,11 +29,15 @@ def admit_voice(text: object) -> str | None:
     if not isinstance(text, str) or not 1 <= len(text) <= 500:
         return None
     value = re.sub(r"\s+", " ", text.replace("’", "'")).strip()
-    # A quoted command or a question about an operation is not an instruction.
-    if any(char in value for char in ('"', '“', '”', '?')):
+    # Quoted speech is never an instruction. A polite imperative may be
+    # punctuated as a question by dictation; other questions remain excluded.
+    if any(char in value for char in ('"', '“', '”')):
         return None
-    value = re.sub(r"[.!]+$", "", value).strip()
     value = re.sub(r"^(?:(?:okay|ok|hey talkback|talkback|please)[, ]+)+", "", value, flags=re.I)
+    polite_request = re.match(r"^(?:can you|could you|would you)\s+", value, re.I)
+    if "?" in value and (not polite_request or "?" in value.rstrip(".!?")):
+        return None
+    value = re.sub(r"[.!?]+$", "", value).strip()
     value = re.sub(r"^(?:can you|could you|would you)\s+", "", value, flags=re.I)
     value = re.sub(r"\btrakt\s+(?=\w)", "track ", value, flags=re.I)
     if _NEGATED_OR_DISCUSSION.search(value) or not _COMMAND.match(value):

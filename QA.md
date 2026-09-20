@@ -14,7 +14,16 @@ Python coverage includes the local grammar, target checks, undo/rollback, socket
 protocol, voice admission, command mappings, recording modes, and group-placement
 guards. One inherited test is skipped because the upstream private publishing
 script is intentionally absent from the public repository.
-Latest run: 344 Python tests, zero failures, one skipped; 16 native tests passed.
+Latest Python run: 351 tests, zero failures, one skipped. Last native run: 16 tests passed.
+
+The reported phrase “Can you start a new track in instruments?” is covered through
+voice admission, local parsing, daemon dispatch, and a mocked Live group-creation
+surface. Polite question punctuation is accepted; general questions, negations,
+missing/duplicate groups, and unavailable group-aware control surfaces stay safe.
+The installed parser previously rejected the question mark or treated “start a
+new” as a plug-in name. This regression is fixed without changing the speech engine.
+These mocked checks are not physical-microphone-to-Live proof. The separately
+observed speech-finalization timeouts remain an open real-world acceptance issue.
 
 The native tests cover silence/stability, configurable pause, replacement of
 volatile speech results, final-only submission, repeated consumption, future

@@ -3,6 +3,9 @@
 English voice commands are checked locally. Say one, then pause; Talkback keeps
 listening for the next command. The CLI also supports typed English and the
 inherited Japanese grammar. There is no floating command bar.
+Polite requests such as `Can you start a new track in Instruments?` are accepted,
+including a final question mark added by dictation. Questions about how to do
+something, quoted speech, and negated commands are still excluded.
 
 ## Targets
 
@@ -24,6 +27,8 @@ If a stated target is missing or ambiguous, Talkback must not pick another one.
 - `fold this track` / `unfold this track` (groups)
 - `rename this track to Lead`
 - `add a MIDI track` / `add an audio track`
+- `start a new track in Instruments` — an empty MIDI track inside that existing group
+- `add an audio track inside the group Drums`
 
 ## Transport
 
@@ -53,7 +58,7 @@ Live's own count-in still applies before the take starts.
 
 Plug-ins must already be installed and visible in Live's browser. Exact names and
 unambiguous partial names are supported. Missing/ambiguous groups or plug-ins
-must not create a track. A group destination is supported for named plug-ins;
+must not create a track. A group destination is supported for empty tracks and named plug-ins;
 generic device categories do not select an arbitrary instrument.
 
 ## Clips and notes

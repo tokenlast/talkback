@@ -68,6 +68,7 @@ ENGLISH_PHRASES: dict[str, tuple[str, ...]] = {
 
 
 _JAPANESE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
+_PLAIN_TRACK = r"(?:(?:create|make|add)\s+(?:an?\s+)?(?:(?:new|another|fresh)\s+)?|start\s+(?:an?\s+)?(?:new|another|fresh)\s+)(?:(midi|audio|instrument)\s+)?track"
 
 
 def _alternation(name: str) -> str:
@@ -219,6 +220,9 @@ def extract_plugin_request_en(utterance: str, snapshot: Snapshot) -> PluginReque
     grouped = re.fullmatch(r"(.+\b(?:new|another|fresh)\s+(?:(?:midi|audio|instrument)\s+)?track)\s+(?:in|inside)\s+(?:the\s+)?(?:group\s+)?(.+)", text)
     if grouped:
         text, group_name = grouped.groups()
+    # Bare track creation is not a plug-in named "start a new" (or similar).
+    if re.fullmatch(_PLAIN_TRACK, text):
+        return None
     new_request = _new_track_request(text, snapshot)
     if new_request is not None:
         raw, kind, track_name = new_request
@@ -358,16 +362,22 @@ def _parse_local_en(utterance: str, snapshot: Snapshot) -> Intent | None:
         if any(item.index == index for item in snapshot.scenes):
             return _local_intent(Action.LAUNCH_SCENE, scene=index)
 
+    grouped_track = re.fullmatch(_PLAIN_TRACK + r"\s+(?:in|inside)\s+(?:the\s+)?(?:group\s+)?(.+)", text)
+    if grouped_track:
+        kind, group_name = grouped_track.groups()
+        action = Action.ADD_AUDIO_TRACK if kind == "audio" else Action.ADD_MIDI_TRACK
+        return replace(_local_intent(action, track_kind="audio" if kind == "audio" else "midi"), group_name=group_name)
+
     new_request = _new_track_request(text, snapshot)
     if new_request is not None:
         raw, kind, track_name = new_request
         device = resolve_native_device(raw)
         if device is not None:
             return _local_intent(Action.ADD_TRACK_WITH_DEVICE, text=original_track_name or track_name, track_kind=kind or "midi", native_device=device)
-    plain_track = re.fullmatch(r"(?:create|make|add)\s+(?:(?:a|an)\s+)?(?:(?:new|another|fresh)\s+)?(?:(midi|audio|instrument)\s+)?track(?:\s+(?:named|called)\s+(.+))?", text)
+    plain_track = re.fullmatch(_PLAIN_TRACK + r"(?:\s+(?:named|called)\s+(.+))?", text)
     if plain_track:
         action = Action.ADD_AUDIO_TRACK if plain_track.group(1) == "audio" else Action.ADD_MIDI_TRACK
-        original_plain = re.fullmatch(r"(?:create|make|add)\s+(?:(?:a|an)\s+)?(?:(?:new|another|fresh)\s+)?(?:(midi|audio|instrument)\s+)?track(?:\s+(?:named|called)\s+(.+))?", utterance.strip(), re.IGNORECASE)
+        original_plain = re.fullmatch(_PLAIN_TRACK + r"(?:\s+(?:named|called)\s+(.+))?", utterance.strip(), re.IGNORECASE)
         name = _clean_object(original_plain.group(2) or "") if original_plain else _clean_object(plain_track.group(2) or "")
         return _local_intent(action, text=name or None, track_kind="audio" if action is Action.ADD_AUDIO_TRACK else "midi")
 

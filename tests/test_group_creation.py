@@ -50,6 +50,19 @@ class GroupCreationTests(TestCase):
         self.assertEqual(surface._add_track({"device": "Missing", "group_name": "Instruments"})["error"], "plugin_not_found")
         song.create_midi_track.assert_not_called()
 
+    def test_plain_track_in_group_does_not_load_a_plugin(self):
+        surface, song, _, browser = self.surface()
+        reply = surface._add_track({"kind": "midi", "group_name": "instruments"})
+        self.assertTrue(reply["ok"], reply)
+        self.assertIs(song.tracks[reply["track_index"]].group_track, song.tracks[1])
+        browser.load_item.assert_not_called()
+
+    def test_missing_group_rejects_plain_creation_before_writes(self):
+        surface, song, _, _ = self.surface()
+        reply = surface._add_track({"kind": "midi", "group_name": "Missing"})
+        self.assertEqual(reply["error"], "group_not_found")
+        song.create_midi_track.assert_not_called()
+
     def test_misplacement_removes_only_new_empty_track(self):
         surface, song, selected, browser = self.surface(misplaced=True)
         before = list(song.tracks)

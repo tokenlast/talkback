@@ -2158,6 +2158,10 @@ class TalkbackService:
                 bridge_ms += write_ms
                 confirmed = not write_unknown
             else:
+                if intent.group_name:
+                    # The legacy bridge cannot honor group placement. Never
+                    # silently create the requested track somewhere else.
+                    raise ValueError("Talkback control surface is unavailable. Nothing was added.")
                 batches = ACTIONS[intent.action].apply(before, intent)
                 if not batches:
                     raise LocalizedError("error.no_action")
@@ -2842,7 +2846,8 @@ class TalkbackService:
         name = intent.text or None
         device = str(intent.native_device) if intent.action is Action.ADD_TRACK_WITH_DEVICE else None
         try:
-            plugin_script.add_track("audio" if audio else "midi", name, device)
+            extra = {"group_name": intent.group_name} if intent.group_name else {}
+            plugin_script.add_track("audio" if audio else "midi", name, device, **extra)
         except plugin_script.ScriptError as error:
             raise ValueError(self.SCRIPT_LOAD_ERRORS.get(str(error), str(error))) from error
         self.snapshot, _ = self.reader.read()
