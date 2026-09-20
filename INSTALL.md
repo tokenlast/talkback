@@ -20,7 +20,7 @@ it does not need the source checkout to stay in place.
 
 ## Connect Ableton
 
-1. Open Talkback's menu-bar menu → **Settings…**.
+1. Open Talkback's menu-bar menu → **Settings…**, or press **⌘,** with Talkback in front.
 2. Under Install the Live control script, select **Install**. If your User Library
    is elsewhere, select that library first.
 3. In Live → Settings → Link, Tempo & MIDI, choose **Talkback** in a Control Surface

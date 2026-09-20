@@ -100,7 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Talkback \(viewModel.text(.quit))", action: #selector(quit), keyEquivalent: "q")
+        appMenu.addItem(withTitle: viewModel.text(.setup), action: #selector(showSetup), keyEquivalent: ",")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "\(viewModel.text(.quit)) Talkback", action: #selector(quit), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
         let editItem = NSMenuItem()
