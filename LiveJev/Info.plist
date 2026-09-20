@@ -28,5 +28,9 @@
 	<string>14.0</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Okina Audio. MIT License.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Live Jev listens while its command bar is open so you can control Ableton Live by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Live Jev turns your spoken Ableton Live commands into text on this Mac.</string>
 </dict>
 </plist>

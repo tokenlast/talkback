@@ -29,6 +29,12 @@ final class WaveformView: NSView {
         }
     }
 
+    var isListening = false {
+        didSet {
+            if isListening != oldValue { updateWaveform() }
+        }
+    }
+
     private let bars = (0..<4).map { _ in CALayer() }
     private let restingHeights: [CGFloat] = [7, 12, 15, 9]
 
@@ -103,8 +109,7 @@ final class WaveformView: NSView {
     }
 
     @objc private func updateWaveform() {
-        // Keep this static. Animation suggests voice input; a still bar indicates only connection status.
-        let shouldAnimate = false
+        let shouldAnimate = isListening
             && isConnected
             && window?.isVisible == true
             && window?.occlusionState.contains(.visible) == true
@@ -233,6 +238,7 @@ final class ConfirmationButton: CapsuleButton {
 @MainActor
 final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDelegate {
     private let viewModel: ViewModel
+    private let dictation = DictationController()
     private let waveform = WaveformView(frame: .zero)
     private let inputField = NSTextField()
     private let undoButton = NSButton(title: "", target: nil, action: nil)
@@ -264,6 +270,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         super.init(window: panel)
         configurePanel(panel)
         buildContent(in: panel)
+        configureDictation()
         viewModel.onChange = { [weak self] in self?.render() }
         render()
     }
@@ -300,6 +307,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
             }
         }
         renderContent(animated: false)
+        dictation.start(language: viewModel.interfaceLanguage)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             Log.shared.write("showAndFocus: active=\(NSApp.isActive) key=\(window.isKeyWindow) front=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "-")")
         }
@@ -313,6 +321,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     private func hide(returnFocus: Bool) {
         guard !isHiding else { return }
         isHiding = true
+        dictation.stop()
         cancelAutoHide()
         cancelProposalExpiry()
         window?.orderOut(nil)
@@ -328,7 +337,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        guard isPanelVisible, !isHiding else { return }
+        guard isPanelVisible, !isHiding, !dictation.isPreparing else { return }
         hide(returnFocus: false)
     }
 
@@ -340,6 +349,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
 
     func controlTextDidChange(_ notification: Notification) {
         cancelAutoHide()
+        if dictation.isListening || dictation.isPreparing { dictation.stop() }
     }
 
     private func cancelAutoHide() {
@@ -389,6 +399,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     ) -> Bool {
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
+            dictation.stop()
             if viewModel.hasPendingConfirmation {
                 cancelAutoHide()
                 inputField.stringValue = ""
@@ -415,6 +426,25 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
             viewModel.answerLatestConfirmation(false)
         } else {
             hide()
+        }
+    }
+
+    private func configureDictation() {
+        dictation.onTranscript = { [weak self] text in
+            guard let self, self.isPanelVisible else { return }
+            self.inputField.stringValue = text
+            self.inputField.currentEditor()?.selectedRange = NSRange(location: text.utf16.count, length: 0)
+        }
+        dictation.onSilence = { [weak self] text in
+            guard let self, self.isPanelVisible, !self.viewModel.hasPendingConfirmation else { return }
+            self.inputField.stringValue = text
+            self.submitInput()
+        }
+        dictation.onListeningChange = { [weak self] isListening in
+            self?.waveform.isListening = isListening
+        }
+        dictation.onError = { error in
+            Log.shared.write("dictation unavailable: \(error)")
         }
     }
 
@@ -875,6 +905,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     private func submitInput() {
         let text = inputField.stringValue
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        dictation.stop()
         cancelAutoHide()
         inputField.stringValue = ""
         historyIndex = nil

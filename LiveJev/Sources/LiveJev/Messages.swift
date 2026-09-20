@@ -84,7 +84,7 @@ enum AppText {
         case .daemonLaunchFailed: pair = ("常駐を起動できません", "Could not start the background service")
         case .daemonStopped: pair = ("常駐が終了しました", "Background service stopped")
         case .inputLabel: pair = ("Liveへの指示", "Command for Live")
-        case .inputHelp: pair = ("Enterで送信。上下矢印で入力履歴。Escapeで閉じます。", "Press Return to send. Use arrow keys for history. Press Escape to close.")
+        case .inputHelp: pair = ("話して1秒待つか、Enterで送信。Escapeで閉じます。", "Speak and pause for one second, or press Return to send. Press Escape to close.")
         case .undoTooltip: pair = ("元に戻す（⌘Z）", "Undo (⌘Z)")
         case .latestResult: pair = ("最新の結果", "Latest result")
         case .yes: pair = ("はい", "Yes")

@@ -2,7 +2,7 @@
 
 **Control Ableton Live with one short sentence.**
 
-Press **⌘⇧Space** while you work in Live and a small bar appears on top of it. Type (or dictate) something like “turn it down 3 dB”, “Serum 2 on a new track”, or “quantize to 1/16”, then hit Enter. The bar disappears instantly, Live stays in front, and the change is applied. The bar only comes back when it needs to ask you something.
+Press **⌘⇧Space** while you work in Live and a small bar appears on top of it, already listening. Say something like “turn it down 3 dB”, “Serum 2 on a new track”, or “quantize to 1/16”. Words appear as you speak; pause for one second or press Enter to run the command. The bar disappears instantly, Live stays in front, and the change is applied. The bar only comes back when it needs to ask you something. Typing still works and immediately stops dictation for that command.
 
 English and Japanese are both supported, with many ways to say the same thing.
 
@@ -22,7 +22,7 @@ English and Japanese are both supported, with many ways to say the same thing.
 ## How it works
 - Meaning is decided by **Jev**, a small, fast model from [TypeSafe](https://typesafe.ai) that picks from a list of choices. Fixed phrases are answered locally without calling Jev at all. No LLM is involved; when Live Jev is unsure, it asks.
 - Live is driven through one small Python **Remote Script** (`LiveJev`) that runs inside Live. No Max for Live required. A command takes about 20 ms; reading the whole set takes about 10 ms.
-- The bar is Swift (AppKit). The background service is Python 3.13, standard library only.
+- The bar is Swift (AppKit). Dictation streams through Apple's on-device Speech framework while the bar is open. The background service is Python 3.13, standard library only.
 
 ## Getting started
 
@@ -58,7 +58,7 @@ bash scripts/build-app.sh
 
 Then, in Live: Settings → **Link, Tempo & MIDI** → **Control Surface** → choose **LiveJev** in a free slot → restart Live. Open `~/Applications/Live Jev.app` (a waveform icon appears in the menu bar; there is no Dock icon), bring Live to the front, and press **⌘⇧Space**.
 
-The first launch opens a **Setup** window that checks the Remote Script, the connection to Live and your API key, and can store the key in the macOS Keychain. The menu bar icon lets you reopen it, switch the language (Automatic / Japanese / English) and launch at login.
+The first launch opens a **Setup** window that checks the Remote Script, the connection to Live and your API key, and can store the key in the macOS Keychain. The first spoken command also asks for Microphone and Speech Recognition permission. The menu bar icon lets you reopen Setup, switch the language (Automatic / Japanese / English) and launch at login.
 
 ### About your plug-ins
 - **There is nothing to import.** Live Jev reads the plug-in list from your own Live browser (Plug-ins, Instruments, Audio Effects, MIDI Effects) the first time you ask for a plug-in, in under a second, and remembers it. Only what you own becomes a candidate.
@@ -70,7 +70,7 @@ The first launch opens a **Setup** window that checks the Remote Script, the con
 - The author’s plug-in list is not in this repository. Product names in the tests are examples.
 
 ### What leaves your Mac
-- The TypeSafe API receives **the sentence you typed** and the **names in the set you have open** that are needed to understand it (track, device, parameter, clip and scene names; plug-in names from your Live browser when you ask for a plug-in by name). No audio, no audio files, no project data.
+- Dictation requires Apple's on-device recognizer, so microphone audio stays on your Mac. The TypeSafe API receives **the resulting sentence** and the **names in the set you have open** that are needed to understand it (track, device, parameter, clip and scene names; plug-in names from your Live browser when you ask for a plug-in by name). No audio, no audio files, no project data.
 - There is no other network traffic. Everything between Live Jev and Live stays on your Mac (127.0.0.1).
 
 ## Safety

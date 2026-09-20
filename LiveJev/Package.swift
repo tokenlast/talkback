@@ -15,8 +15,10 @@ let package = Package(
             name: "LiveJev",
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
-                .linkedFramework("ServiceManagement")
+                .linkedFramework("ServiceManagement"),
+                .linkedFramework("Speech")
             ]
         )
     ],

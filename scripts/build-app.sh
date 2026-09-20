@@ -17,6 +17,7 @@ INSTALL=1
 
 say() { printf '%s\n' "$*"; }
 fail() { printf '[FAILED] %s\n' "$*" >&2; exit 1; }
+trash_existing() { [[ ! -e "$1" ]] || /usr/bin/trash "$1"; }
 
 command -v swift >/dev/null || fail "swift was not found (install Xcode)"
 [[ -x "$PYTHON" ]] || fail "$PYTHON was not found"
@@ -28,7 +29,7 @@ BIN="$BUILD_DIR/release/LiveJev"
 
 say "2/5 Creating the icon"
 ICONSET="$BUILD_DIR/AppIcon.iconset"
-rm -rf "$ICONSET"; mkdir -p "$ICONSET"
+trash_existing "$ICONSET"; mkdir -p "$ICONSET"
 "$PYTHON" "$SCRIPT_DIR/make_icon.py" "$BUILD_DIR/icon-1024.png" >/dev/null
 for px in 16 32 128 256 512; do
   sips -z "$px" "$px" "$BUILD_DIR/icon-1024.png" --out "$ICONSET/icon_${px}x${px}.png" >/dev/null
@@ -38,7 +39,7 @@ done
 iconutil -c icns "$ICONSET" -o "$BUILD_DIR/AppIcon.icns" || fail "iconutil failed"
 
 say "3/5 Assembling the .app"
-rm -rf "$APP_DIR"
+trash_existing "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN" "$APP_DIR/Contents/MacOS/LiveJev"
 cp "$PKG_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
@@ -54,11 +55,11 @@ if [[ "$INSTALL" -eq 1 ]]; then
   say "5/5 Installing in ~/Applications"
   mkdir -p "$INSTALL_DIR"
   if [[ -d "$INSTALL_DIR/$OLD_APP_NAME" ]]; then
-    rm -rf "$BUILD_DIR/$OLD_APP_NAME.old"
+    trash_existing "$BUILD_DIR/$OLD_APP_NAME.old"
     mv "$INSTALL_DIR/$OLD_APP_NAME" "$BUILD_DIR/$OLD_APP_NAME.old"
   fi
   if [[ -d "$INSTALL_DIR/$APP_NAME" ]]; then
-    rm -rf "$BUILD_DIR/$APP_NAME.bak"
+    trash_existing "$BUILD_DIR/$APP_NAME.bak"
     mv "$INSTALL_DIR/$APP_NAME" "$BUILD_DIR/$APP_NAME.bak"
   fi
   cp -R "$APP_DIR" "$INSTALL_DIR/$APP_NAME"
