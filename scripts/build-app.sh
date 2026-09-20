@@ -32,7 +32,7 @@ say "2/5 Creating the icon"
 ICONSET="$BUILD_DIR/AppIcon.iconset"
 trash_existing "$ICONSET"; mkdir -p "$ICONSET"
 xcrun swiftc "$PKG_DIR/Sources/Talkback/TalkbackMark.swift" "$SCRIPT_DIR/render_icon.swift" -o "$BUILD_DIR/render-icon"
-"$BUILD_DIR/render-icon" "$BUILD_DIR/icon-1024.png"
+"$BUILD_DIR/render-icon" "$SAY_DIR/assets/TalkbackLogo.png" "$BUILD_DIR/icon-1024.png"
 for px in 16 32 128 256 512; do
   sips -z "$px" "$px" "$BUILD_DIR/icon-1024.png" --out "$ICONSET/icon_${px}x${px}.png" >/dev/null
   dbl=$((px * 2))
@@ -46,6 +46,7 @@ mkdir -p "$STAGE_DIR" "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN" "$APP_DIR/Contents/MacOS/Talkback"
 cp "$PKG_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$BUILD_DIR/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp "$SAY_DIR/assets/TalkbackLogo.png" "$APP_DIR/Contents/Resources/TalkbackLogo.png"
 mkdir -p "$APP_DIR/Contents/Resources/daemon" "$APP_DIR/Contents/Resources/remote_script/Talkback"
 DAEMON_FILES=(daemon.py intent.py intent_en.py voice_gate.py user_commands.py actions.py messages.py snapshot.py bridge_client.py script_bridge_client.py plugin_script.py llm_rewrite.py cli.py)
 for source in "${DAEMON_FILES[@]}"; do

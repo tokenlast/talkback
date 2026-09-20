@@ -1,8 +1,13 @@
 import AppKit
+import ImageIO
 
-/// Hand-drawn vector interpretation of the selected gooseneck microphone (#8).
-/// Shared by the menu badge and app icon: no bitmap art, gradients, or shadows.
+/// The supplied artwork with a solid white keyline, never a drop shadow.
 enum TalkbackMark {
+    struct Logo {
+        let ink: CGImage
+        let outline: CGImage
+        let outlineScale: CGFloat
+    }
     static let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
     // Modal interior pixel of the supplied macOS microphone badge, in its
     // original Display P3 profile. Treating these bytes as sRGB changes the color.
@@ -12,8 +17,88 @@ enum TalkbackMark {
     static var black: CGColor {
         CGColor(colorSpace: colorSpace, components: [0, 0, 0, 1])!
     }
+    static var white: CGColor {
+        CGColor(colorSpace: colorSpace, components: [1, 1, 1, 1])!
+    }
     static var paused: CGColor {
         CGColor(colorSpace: colorSpace, components: [0.78, 0.78, 0.78, 1])!
+    }
+
+    private static let bundledLogo: Logo? = {
+        guard let url = Bundle.main.url(forResource: "TalkbackLogo", withExtension: "png") else { return nil }
+        return loadLogoMask(from: url)
+    }()
+
+    static func loadLogoMask(from url: URL) -> Logo? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let ink = mask(from: image), let silhouette = silhouette(from: ink) else { return nil }
+        let radius = CGFloat(image.width) * 0.045
+        let padding = Int(ceil(radius)) + 2
+        let width = image.width + padding * 2
+        let height = image.height + padding * 2
+        guard let context = CGContext(data: nil, width: width, height: height,
+                                      bitsPerComponent: 8, bytesPerRow: width,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let original = CGRect(x: padding, y: padding, width: image.width, height: image.height)
+        context.draw(silhouette, in: original)
+        // Union evenly spaced copies of the filled silhouette. This creates a
+        // centered, hard white keyline with no blur, shadow, or clipped edges.
+        context.setBlendMode(.darken)
+        for step in 0..<48 {
+            let angle = CGFloat(step) * 2 * .pi / 48
+            context.draw(silhouette, in: original.offsetBy(dx: cos(angle) * radius, dy: sin(angle) * radius))
+        }
+        guard let padded = context.makeImage() else { return nil }
+        guard let outline = mask(from: padded) else { return nil }
+        return Logo(ink: ink, outline: outline, outlineScale: CGFloat(width) / CGFloat(image.width))
+    }
+
+    /// Keep the paper inside the closed line drawing white, as in the supplied
+    /// logo. Only the exterior paper is transparent; no tiny orange holes remain.
+    private static func silhouette(from mask: CGImage) -> CGImage? {
+        guard let data = mask.dataProvider?.data else { return nil }
+        let source = [UInt8](data as Data)
+        let width = mask.width, height = mask.height
+        var exterior = [Bool](repeating: false, count: width * height)
+        var queue: [Int] = []
+        func visit(_ x: Int, _ y: Int) {
+            guard x >= 0, x < width, y >= 0, y < height else { return }
+            let index = y * width + x
+            guard !exterior[index], source[y * mask.bytesPerRow + x] >= 128 else { return }
+            exterior[index] = true
+            queue.append(index)
+        }
+        for x in 0..<width { visit(x, 0); visit(x, height - 1) }
+        for y in 0..<height { visit(0, y); visit(width - 1, y) }
+        var cursor = 0
+        while cursor < queue.count {
+            let index = queue[cursor], x = index % width, y = index / width
+            cursor += 1
+            visit(x - 1, y); visit(x + 1, y); visit(x, y - 1); visit(x, y + 1)
+        }
+        let pixels = (0..<(width * height)).map { exterior[$0] ? source[($0 / width) * mask.bytesPerRow + $0 % width] : UInt8(0) }
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 8,
+                       bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: [],
+                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
+
+    private static func mask(from image: CGImage) -> CGImage? {
+        guard let context = CGContext(data: nil, width: image.width, height: image.height,
+                                      bitsPerComponent: 8, bytesPerRow: image.width,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(rect)
+        context.draw(image, in: rect)
+        guard let provider = context.makeImage()?.dataProvider else { return nil }
+        // Quartz image masks use 0 for ink and 255 for transparent paper.
+        return CGImage(maskWidth: image.width, height: image.height, bitsPerComponent: 8,
+                       bitsPerPixel: 8, bytesPerRow: image.width, provider: provider,
+                       decode: nil, shouldInterpolate: true)
     }
 
     static func badge(listening: Bool) -> NSImage {
@@ -26,7 +111,7 @@ enum TalkbackMark {
         return image
     }
 
-    static func drawBadge(in rect: CGRect, context: CGContext, listening: Bool) {
+    static func drawBadge(in rect: CGRect, context: CGContext, listening: Bool, logo: Logo? = nil) {
         context.saveGState()
         defer { context.restoreGState() }
         context.translateBy(x: rect.minX, y: rect.minY)
@@ -35,83 +120,32 @@ enum TalkbackMark {
         context.setFillColor(background)
         context.addPath(CGPath(roundedRect: CGRect(x: 1, y: 1, width: 30, height: 18), cornerWidth: 9, cornerHeight: 9, transform: nil))
         context.fillPath()
-        drawMicrophone(in: CGRect(x: 7, y: 1, width: 18, height: 18), context: context, background: background)
+        drawMicrophone(in: CGRect(x: 8, y: 2, width: 16, height: 16), context: context, logo: logo)
     }
 
-    static func drawAppIcon(in rect: CGRect, context: CGContext) {
+    static func drawAppIcon(in rect: CGRect, context: CGContext, logo: Logo? = nil) {
         context.saveGState()
         defer { context.restoreGState() }
         context.setFillColor(orange)
         let face = rect.insetBy(dx: rect.width * 0.06, dy: rect.height * 0.06)
         context.addPath(CGPath(roundedRect: face, cornerWidth: rect.width * 0.20, cornerHeight: rect.height * 0.20, transform: nil))
         context.fillPath()
-        drawMicrophone(in: rect.insetBy(dx: rect.width * 0.13, dy: rect.height * 0.13), context: context, background: orange)
+        drawMicrophone(in: rect.insetBy(dx: rect.width * 0.13, dy: rect.height * 0.13), context: context, logo: logo)
     }
 
-    private static func drawMicrophone(in rect: CGRect, context: CGContext, background: CGColor) {
+    private static func drawMicrophone(in rect: CGRect, context: CGContext, logo: Logo?) {
+        guard let logo = logo ?? bundledLogo else { return }
+        let margin = rect.width * (logo.outlineScale - 1) / 2
+        paint(logo.outline, in: rect.insetBy(dx: -margin, dy: -margin), color: white, context: context)
+        paint(logo.ink, in: rect, color: black, context: context)
+    }
+
+    private static func paint(_ mask: CGImage, in rect: CGRect, color: CGColor, context: CGContext) {
         context.saveGState()
         defer { context.restoreGState() }
-        // Author the drawing on a 24 × 24, top-left-origin grid.
-        context.translateBy(x: rect.minX, y: rect.maxY)
-        context.scaleBy(x: rect.width / 24, y: -rect.height / 24)
-        context.setStrokeColor(black)
-        context.setFillColor(background)
-        context.setLineWidth(1.3)
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-
-        let neck = CGMutablePath()
-        neck.move(to: CGPoint(x: 6.1, y: 19.7))
-        neck.addCurve(to: CGPoint(x: 4.1, y: 8.2), control1: CGPoint(x: 5.7, y: 15.7), control2: CGPoint(x: 3.5, y: 12.3))
-        neck.addCurve(to: CGPoint(x: 11.2, y: 1.7), control1: CGPoint(x: 4.6, y: 3.7), control2: CGPoint(x: 7.7, y: 1.4))
-        neck.addCurve(to: CGPoint(x: 18, y: 9.4), control1: CGPoint(x: 15.4, y: 1.9), control2: CGPoint(x: 17.2, y: 5.6))
-        neck.addLine(to: CGPoint(x: 15.2, y: 10.2))
-        neck.addCurve(to: CGPoint(x: 11, y: 4.4), control1: CGPoint(x: 14.5, y: 7), control2: CGPoint(x: 13.6, y: 4.5))
-        neck.addCurve(to: CGPoint(x: 6.7, y: 8.8), control1: CGPoint(x: 8.3, y: 4.2), control2: CGPoint(x: 6.6, y: 6.1))
-        neck.addCurve(to: CGPoint(x: 8.7, y: 19.6), control1: CGPoint(x: 6.8, y: 12.2), control2: CGPoint(x: 8.6, y: 15.6))
-        neck.closeSubpath()
-        context.addPath(neck)
-        context.drawPath(using: .fillStroke)
-
-        context.setLineWidth(0.85)
-        for (start, end) in [
-            (CGPoint(x: 4.6, y: 6.4), CGPoint(x: 6.8, y: 7.2)),
-            (CGPoint(x: 6.4, y: 3.7), CGPoint(x: 8, y: 5.5)),
-            (CGPoint(x: 9.5, y: 1.9), CGPoint(x: 10, y: 4.4)),
-            (CGPoint(x: 12.9, y: 2.2), CGPoint(x: 12, y: 4.7)),
-            (CGPoint(x: 15.4, y: 4.5), CGPoint(x: 13.5, y: 6.1)),
-            (CGPoint(x: 16.9, y: 7.2), CGPoint(x: 14.7, y: 8)),
-            (CGPoint(x: 4.4, y: 10), CGPoint(x: 6.8, y: 10)),
-            (CGPoint(x: 5.4, y: 13.5), CGPoint(x: 7.6, y: 13)),
-            (CGPoint(x: 6.1, y: 17), CGPoint(x: 8.4, y: 16.5))
-        ] {
-            context.move(to: start)
-            context.addLine(to: end)
-        }
-        context.strokePath()
-        context.setLineWidth(1.3)
-
-        let body = CGMutablePath()
-        body.move(to: CGPoint(x: 15.5, y: 9.5))
-        body.addCurve(to: CGPoint(x: 19.8, y: 11.2), control1: CGPoint(x: 17.4, y: 8.7), control2: CGPoint(x: 19.2, y: 9.2))
-        body.addLine(to: CGPoint(x: 21.3, y: 17))
-        body.addCurve(to: CGPoint(x: 18.7, y: 20.8), control1: CGPoint(x: 21.9, y: 19.1), control2: CGPoint(x: 20.7, y: 20.3))
-        body.addLine(to: CGPoint(x: 17.5, y: 21.1))
-        body.addCurve(to: CGPoint(x: 14.3, y: 18.9), control1: CGPoint(x: 15.6, y: 21.4), control2: CGPoint(x: 14.6, y: 20.5))
-        body.addLine(to: CGPoint(x: 13.3, y: 13))
-        body.addCurve(to: CGPoint(x: 15.5, y: 9.5), control1: CGPoint(x: 13.1, y: 11.2), control2: CGPoint(x: 13.8, y: 10))
-        body.closeSubpath()
-        context.addPath(body)
-        context.drawPath(using: .fillStroke)
-
-        context.move(to: CGPoint(x: 15.5, y: 15.3))
-        context.addQuadCurve(to: CGPoint(x: 19, y: 14.4), control: CGPoint(x: 17.4, y: 15.4))
-        context.move(to: CGPoint(x: 16.1, y: 18.1))
-        context.addQuadCurve(to: CGPoint(x: 19.7, y: 17.2), control: CGPoint(x: 18, y: 18.2))
-        context.strokePath()
-
-        let base = CGPath(roundedRect: CGRect(x: 5.2, y: 19.2, width: 4.7, height: 3.6), cornerWidth: 0.8, cornerHeight: 0.8, transform: nil)
-        context.addPath(base)
-        context.drawPath(using: .fillStroke)
+        context.interpolationQuality = .high
+        context.clip(to: rect, mask: mask)
+        context.setFillColor(color)
+        context.fill(rect)
     }
 }

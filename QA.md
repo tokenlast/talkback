@@ -14,14 +14,15 @@ Python coverage includes the local grammar, target checks, undo/rollback, socket
 protocol, voice admission, command mappings, recording modes, and group-placement
 guards. One inherited test is skipped because the upstream private publishing
 script is intentionally absent from the public repository.
-Latest run: 344 Python tests, zero failures, one skipped; 14 native tests passed.
+Latest run: 344 Python tests, zero failures, one skipped; 15 native tests passed.
 
 The native tests cover silence/stability, configurable pause, replacement of
 volatile speech results, final-only submission, repeated consumption, future
 segments, discarding oversized conversation without executing a suffix, built-in
 microphone defaults, stable device identity, and refusing an unavailable input.
-The hand-drawn icon checks lock the screenshot's Display P3 orange, opaque black
-paint, absence of extra colors/shadows, and fixed menu dimensions in both states.
+The supplied-logo checks lock the screenshot's Display P3 orange, opaque black
+ink, a thick white keyline, padded grayscale-mask decoding, and fixed menu dimensions
+in both states. Edge coverage is antialiased; no shading or drop shadow is added.
 
 ## Real local speech model, synthetic input
 
