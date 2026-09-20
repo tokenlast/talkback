@@ -14,7 +14,7 @@ open "$HOME/Applications/Talkback.app"
 ```
 
 The local build is ad-hoc signed, not a notarized public binary. The build script
-keeps the previous installed app as `~/dev/talkback-build/Talkback.app.bak` and
+keeps the previous installed app as `~/dev/talkback-build/stage.noindex/previous/Talkback.app` and
 moves older generated artifacts to Trash. The app bundles the daemon source;
 it does not need the source checkout to stay in place.
 
