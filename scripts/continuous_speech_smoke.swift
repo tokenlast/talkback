@@ -1,4 +1,4 @@
-// Build with DictationController.swift, VoiceState.swift, Messages.swift, Log.swift.
+// Build with the native source files listed in QA.md.
 // Uses a synthetic fixture, never the microphone. See QA.md.
 import AVFoundation
 import CoreMedia

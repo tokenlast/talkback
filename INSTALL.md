@@ -36,14 +36,21 @@ script as a backup, but quit the old app so it does not own the same shortcut.
 Allow Talkback's microphone request. The first start may download Apple's local
 speech model. No Accessibility permission is required for the command shortcut.
 
+The **Microphone** chooser defaults to the Mac's built-in input, not the system
+default or Ableton's audio interface. Other inputs can be selected explicitly.
+Device choices use stable IDs across reconnects. If a saved input is unavailable,
+Talkback stops capture and retries that input; it does not switch to another mic.
+
 Listening remains on until disabled. The menu bar's Listening checkbox reflects
 the preference; Settings shows whether the engine is actually listening or has
 encountered an error. Enable **Launch at login** and save preferences to restart it
 automatically at future logins.
 
-Defaults: English recognition, one-second pause, quiet threshold −48 dB,
+Defaults: English recognition, 0.7-second pause, quiet threshold −48 dB,
 Arrangement recording, no opening phrase, foreground-only actions, ⌘⇧Space.
-Settings lets you change these behaviors. The language menu controls the interface;
+Saved pause choices are preserved. Settings accepts 0.1–10 seconds. The shortcut
+toggles listening without opening a bar; Advanced can change it to send the
+current phrase. Other preferences are tucked into Advanced. The language menu controls the interface;
 English is currently required for hands-free command admission.
 
 A required opening phrase such as “Talkback” reduces false activations. Any voice
@@ -52,7 +59,7 @@ music or open speakers. Turn Listening off when you do not want voice control.
 
 ## Custom commands
 
-Open Settings → Custom commands. Enter one `phrase => command` per line and select
+Open Settings → Advanced → Custom commands. Enter one `phrase => command` per line and select
 **Save preferences**. The “All supported commands” link opens the bundled reference.
 
 The format is validated on save. Actual action, target, plug-in, and clip validity
@@ -81,8 +88,8 @@ TALKBACK_LOCAL_ONLY=1 python3 cli.py status
 - No speech: check Microphone permission and Settings' status. Toggle Listening
   off/on after changing audio hardware or a speech error.
 - No automatic submission during music: adjust the quiet threshold or use
-  headphones/a closer mic; open the command bar and press Return.
-- No shortcut: try the menu's Show command bar, then choose another shortcut in Settings.
+  headphones/a closer mic, or select Send current phrase from the menu.
+- No shortcut: use the menu's Listening toggle, then choose another shortcut in Settings.
 - No plug-in: confirm it is installed and visible in Live's browser. Ambiguous
   names need a more specific name.
 - No recording: check the recording destination and armed tracks. Talkback does

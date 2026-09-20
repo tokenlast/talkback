@@ -68,3 +68,14 @@ class GroupCreationTests(TestCase):
         self.assertIs(song.tracks[reply["track_index"]].group_track, song.tracks[1])
         browser.load_item.assert_called_once()
         song.end_undo_step.assert_called_once()
+
+    def test_resume_does_not_interrupt_record_count_in_or_playback(self):
+        for playing, counting, should_call in ((False, True, False), (True, False, False), (False, False, True)):
+            with self.subTest(playing=playing, counting=counting):
+                surface, song, _, _ = self.surface()
+                song.is_playing = playing
+                song.is_counting_in = counting
+                song.continue_playing = mock.Mock(return_value=None)
+                reply = surface._execute_lom("lom_call", {"path": "live_set", "method": "continue_playing", "args": []})
+                self.assertTrue(reply["ok"])
+                self.assertEqual(song.continue_playing.call_count, int(should_call))

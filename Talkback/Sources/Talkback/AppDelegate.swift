@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboarding: Onboarding?
     private var loginItem: NSMenuItem?
     private var listeningItem: NSMenuItem?
+    private var resultItem: NSMenuItem?
+    private var proposalItems: [NSMenuItem] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: ["language": AppLanguage.auto.rawValue, "TalkbackListeningEnabled": true, "TalkbackAllowJev": false])
@@ -18,10 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = makeMainMenu()
         configureMenuBar()
         panelController.onVoiceStateChange = { [weak self] in self?.updateVoiceState() }
+        panelController.onResultChange = { [weak self] in self?.updateResult() }
 
-        let hotKey = HotKey { [weak panelController] in
-            panelController?.toggle()
-        }
+        let hotKey = HotKey { [weak self] in self?.handleShortcut() }
         self.hotKey = hotKey
         do {
             try hotKey.register()
@@ -33,11 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged), name: TalkbackSettings.changed, object: nil)
         panelController.reconcileListening()
         if !UserDefaults.standard.bool(forKey: "TalkbackSetupDone") { showSetup() }
-        // Do not show the on-demand UI at launch, which would display the pill after every login. Open it with Cmd-Shift-Space or the menu.
+        updateVoiceState()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        panelController?.showAndFocus()
+        showSetup()
         return true
     }
 
@@ -47,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureMenuBar() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: 36)
         item.button?.image = NSImage(
             systemSymbolName: "waveform",
             accessibilityDescription: "Talkback"
@@ -60,7 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         listeningItem = menu.addItem(withTitle: "Listening", action: #selector(toggleListening), keyEquivalent: "")
         listeningItem?.state = panelController?.listeningEnabled == true ? .on : .off
-        menu.addItem(withTitle: viewModel.text(.show), action: #selector(showPanel), keyEquivalent: "")
+        resultItem = menu.addItem(withTitle: "No commands yet", action: nil, keyEquivalent: "")
+        resultItem?.isEnabled = false
+        menu.addItem(withTitle: "Send current phrase", action: #selector(sendCurrentPhrase), keyEquivalent: "")
+        menu.addItem(withTitle: "Discard current phrase", action: #selector(discardCurrentPhrase), keyEquivalent: "")
         menu.addItem(withTitle: viewModel.text(.setup), action: #selector(showSetup), keyEquivalent: "")
         let loginItem = menu.addItem(
             withTitle: viewModel.text(.launchAtLogin),
@@ -81,9 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         languageItem.submenu = languageMenu
         menu.addItem(languageItem)
-        let detailsItem = menu.addItem(withTitle: viewModel.text(.showDetails), action: #selector(PanelController.toggleDetails(_:)), keyEquivalent: "")
-        detailsItem.target = panelController
-        detailsItem.state = UserDefaults.standard.bool(forKey: "showDetails") ? .on : .off
         menu.addItem(.separator())
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let versionItem = menu.addItem(withTitle: "\(viewModel.text(.version)) \(version)", action: nil, keyEquivalent: "")
@@ -91,7 +92,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: viewModel.text(.quit), action: #selector(quit), keyEquivalent: "q")
         menu.items.forEach { $0.target = self }
-        detailsItem.target = panelController
         return menu
     }
 
@@ -134,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.restartDaemon()
         panelController?.restartSpeechLanguage()
         hotKey = nil
-        let replacement = HotKey { [weak self] in self?.panelController?.toggle() }
+        let replacement = HotKey { [weak self] in self?.handleShortcut() }
         do { try replacement.register(); hotKey = replacement }
         catch { Log.shared.write("Shortcut unavailable: \(error.localizedDescription)") }
         updateLoginItemState()
@@ -144,12 +144,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let panelController else { return }
         listeningItem?.state = panelController.listeningEnabled ? .on : .off
         statusItem?.button?.toolTip = "Talkback — \(panelController.voiceStatus)"
-        statusItem?.button?.image = NSImage(systemSymbolName: panelController.listeningEnabled ? "mic" : "mic.slash", accessibilityDescription: "Talkback — \(panelController.voiceStatus)")
+        statusItem?.button?.image = Self.statusBadge(listening: panelController.listeningEnabled)
+        statusItem?.button?.setAccessibilityLabel("Talkback — \(panelController.voiceStatus)")
         onboarding?.refreshVoice()
     }
 
-    @objc private func showPanel() {
-        panelController?.showAndFocus()
+    private func updateResult() {
+        let line = viewModel.results.first?.line ?? "No commands yet"
+        resultItem?.title = String(line.prefix(110)) + (line.count > 110 ? "…" : "")
+        resultItem?.toolTip = line
+        if let menu = statusItem?.menu, let resultItem {
+            proposalItems.forEach { menu.removeItem($0) }
+            proposalItems.removeAll()
+            let latest = viewModel.results.first
+            if let id = latest?.confirmationID {
+                for (title, approved) in [("Confirm command", true), ("Cancel command", false)] {
+                    let item = NSMenuItem(title: title, action: #selector(answerMenuConfirmation(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = id
+                    item.tag = approved ? 1 : 0
+                    proposalItems.append(item)
+                }
+            } else if latest?.kind == .ask, let id = latest?.requestID {
+                for option in latest?.options ?? [] {
+                    let item = NSMenuItem(title: option, action: #selector(answerMenuQuestion(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = id
+                    proposalItems.append(item)
+                }
+            }
+            for (offset, item) in proposalItems.enumerated() {
+                menu.insertItem(item, at: menu.index(of: resultItem) + 1 + offset)
+            }
+        }
+        onboarding?.refreshVoice()
+    }
+
+    @objc private func answerMenuConfirmation(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        viewModel.answerConfirmation(id: id, confirmed: sender.tag == 1)
+    }
+
+    @objc private func answerMenuQuestion(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              viewModel.results.first?.requestID == id else { return }
+        viewModel.submit(sender.title, answering: id)
+    }
+
+    private func handleShortcut() {
+        if UserDefaults.standard.string(forKey: "TalkbackShortcutAction") == "send" { sendCurrentPhrase() }
+        else { toggleListening() }
+    }
+
+    @objc private func sendCurrentPhrase() { panelController?.sendCurrentPhrase() }
+    @objc private func discardCurrentPhrase() { panelController?.discardCurrentPhrase() }
+
+    private static func statusBadge(listening: Bool) -> NSImage {
+        // The chosen mic artwork will replace the neutral waveform here.
+        let image = NSImage(size: NSSize(width: 32, height: 20), flipped: false) { rect in
+            (listening ? NSColor(calibratedRed: 1, green: 0.79, blue: 0.22, alpha: 1) : .lightGray).setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: 9, yRadius: 9).fill()
+            NSColor.black.setStroke()
+            for (index, height) in [CGFloat(5), 10, 7, 12, 5].enumerated() {
+                let path = NSBezierPath()
+                path.lineWidth = 1.6
+                path.lineCapStyle = .round
+                let x = CGFloat(10 + index * 3)
+                path.move(to: NSPoint(x: x, y: 10 - height / 2))
+                path.line(to: NSPoint(x: x, y: 10 + height / 2))
+                path.stroke()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 
     @objc private func toggleLoginItem() {
@@ -170,6 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.setLanguage(AppLanguage.allCases[sender.tag])
         NSApp.mainMenu = makeMainMenu()
         statusItem?.menu = makeStatusMenu()
+        updateResult()
         panelController?.updateLocalizedText()
         panelController?.restartSpeechLanguage()
         onboarding?.updateLocalizedText()

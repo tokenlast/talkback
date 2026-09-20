@@ -241,6 +241,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     private let dictation = DictationController()
     var onVoiceStateChange: (() -> Void)?
     private(set) var voiceStatus = "Off"
+    var onResultChange: (() -> Void)?
     private var manualEntry = false
     private var utteranceContext: Bool?
     private var voiceRetryTask: Task<Void, Never>?
@@ -499,8 +500,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     private var canActOnVoice: Bool {
         if !TalkbackSettings.liveOnly { return true }
         let front = NSWorkspace.shared.frontmostApplication
-        return front?.bundleIdentifier == "com.ableton.live" ||
-            (isPanelVisible && front?.processIdentifier == ProcessInfo.processInfo.processIdentifier)
+        return front?.bundleIdentifier == "com.ableton.live"
     }
 
     func setListening(_ enabled: Bool) {
@@ -518,6 +518,17 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     }
 
     func stopListening() { voiceRetryTask?.cancel(); dictation.stop() }
+
+    func sendCurrentPhrase() { dictation.finish() }
+
+    func discardCurrentPhrase() {
+        dictation.stop()
+        utteranceContext = nil
+        if let proposal = viewModel.results.first, proposal.kind == .ask || proposal.kind == .confirm {
+            viewModel.expireProposal(proposal)
+        }
+        reconcileListening()
+    }
 
     func restartSpeechLanguage() {
         dictation.stop()
@@ -686,7 +697,6 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         waveform.toolTip = viewModel.statusLine
         let latest = viewModel.results.first
         let isNew = latest.map { !seenResults.contains($0.id) } ?? false
-        let matchesHiddenRequest = latest?.requestID.map { outstandingHiddenRequestIDs.contains($0) || $0.hasPrefix("voice-") } == true
         seenResults = Set(viewModel.results.map(\.id))
         if isNew, let requestID = latest?.requestID {
             outstandingHiddenRequestIDs.remove(requestID)
@@ -699,23 +709,10 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         }
         let isAwaitingAnswer = displayedItem?.kind == .ask || displayedItem?.kind == .confirm
         let isIncomingQuestion = latest?.kind == .ask || latest?.kind == .confirm
-        if isNew, matchesHiddenRequest, latest?.kind == .result {
-            // Success needs no message; it would interrupt users who reopen the panel to enter the next command.
-        } else if isNew, !isPanelVisible, matchesHiddenRequest, let latest {
-            if latest.kind != .result {
-                showAndFocus()
-                displayedItem = latest
-                cancelAutoHide()
-                if latest.kind != .ask, latest.kind != .confirm {
-                    autoHideTask = Task { [weak self] in
-                        do { try await Task.sleep(for: .seconds(3.0)) }
-                        catch { return }
-                        guard let self, self.isPanelVisible, !self.viewModel.hasPendingConfirmation,
-                              self.inputField.stringValue.isEmpty else { return }
-                        self.hide()
-                    }
-                }
-            }
+        if isNew, !isPanelVisible {
+            // Hands-free results, questions, and errors stay in the menu bar.
+            // Never steal focus from Live or reveal the retired floating bar.
+            displayedItem = latest
         } else if isNew, isPanelVisible, !isAwaitingAnswer || isIncomingQuestion {
             displayedItem = latest
             cancelAutoHide()
@@ -734,6 +731,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         if let displayedItem, displayedItem.kind == .ask || displayedItem.kind == .confirm {
             scheduleProposalExpiry(for: displayedItem)
         }
+        onResultChange?()
         renderContent(animated: isPanelVisible)
     }
 

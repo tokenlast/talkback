@@ -11,7 +11,7 @@ struct VoiceEndpoint {
     mutating func textChanged(at now: TimeInterval) { lastText = now }
     func shouldFinish(at now: TimeInterval, hasText: Bool, pause: TimeInterval = 1) -> Bool {
         guard hasText, let lastAudio, let lastText else { return false }
-        return now - lastAudio < 0.3 && now - (lastSound ?? lastText) >= pause && now - lastText >= 0.3
+        return now - lastAudio < 0.3 && now - (lastSound ?? lastText) >= pause && now - lastText >= min(0.3, pause)
     }
 }
 

@@ -25,14 +25,19 @@ notarized Talkback binary release has not been published.
 - Launch Talkback once. It stays in the menu bar; closing its window does not quit.
 - Listening is enabled by default. Turn it off with the menu bar **Listening**
   toggle. Enable **Launch at login** in Settings for future logins.
-- By default, commands act only while Live or Talkback's command bar is in front.
+- By default, commands act only while Live is in front.
   Switching applications during a phrase discards that phrase.
-- Pause for one second to send. Or open the bar with **⌘⇧Space** and press Return.
-  Escape discards the current phrase. Typing pauses the microphone until the bar closes.
+- Pause to send; listening continues for the next command. New installs default
+  to 0.7 seconds. Settings accepts 0.1–10 seconds and preserves your saved choice.
+- **⌘⇧Space** toggles listening without a floating bar. Advanced settings can
+  change the shortcut to send the current phrase instead. The menu also offers
+  Send current phrase and Discard current phrase.
+- Results and errors stay in the menu; they never steal focus from Live.
 - “Start recording” defaults to **Arrangement**; Settings can switch it to Session.
   Explicit “start arrangement recording” and “start session recording” override that setting.
-- Settings also exposes pause time, quiet threshold, opening phrase, automatic
-  submission, foreground restriction, shortcuts, login behavior, and optional cloud use.
+- The main settings show listening, microphone, shortcut, and pause. **Advanced** holds recording
+  destination, quiet threshold, opening phrase, automatic submission, foreground
+  restriction, shortcut action, login, custom commands, connection setup, and cloud use.
 
 [All supported commands and custom phrase examples](COMMANDS.md).
 
@@ -54,6 +59,10 @@ from source at `~/Library/Application Support/Talkback/commands.txt`.
 
 ## Privacy and boundaries
 
+Talkback chooses the Mac's built-in microphone by default, independently of the
+system or Ableton audio-interface selection. Choose a different input in Settings.
+An unavailable selected device does not silently fall back to another microphone.
+
 Audio and ambient transcripts are not saved by Talkback or sent to its cloud
 interpreter. The speech model and command-admission filter run on the Mac.
 Rejected conversation is discarded. Operational/error logs contain microphone
@@ -73,7 +82,7 @@ port: loopback is not an authentication boundary. Do not expose it to a network.
 - Hands-free admission is currently English; inherited typed commands also support Japanese.
 - The endpoint uses an adjustable sound threshold, not speaker separation.
   Loud continuous playback may delay automatic submission. A close microphone or
-  headphones helps; Return is the manual override.
+  headphones helps; Send current phrase is the manual override.
 - Commands wait for a final recognition result, never just an unstable partial.
 - Track names and targets are checked before writes. Missing targets do not fall
   back to another track.

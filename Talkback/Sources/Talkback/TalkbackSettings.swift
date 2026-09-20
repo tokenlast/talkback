@@ -2,9 +2,12 @@ import Foundation
 
 enum TalkbackSettings {
     static let changed = Notification.Name("TalkbackSettingsChanged")
+    static let pauseRange = 0.1...10.0
+    static func boundedPause(_ value: Double) -> Double {
+        min(pauseRange.upperBound, max(pauseRange.lowerBound, value.isFinite ? value : 0.7))
+    }
     static var pause: Double {
-        let value = UserDefaults.standard.object(forKey: "TalkbackPause") as? Double ?? 1
-        return min(3, max(0.3, value.isFinite ? value : 1))
+        boundedPause(UserDefaults.standard.object(forKey: "TalkbackPause") as? Double ?? 0.7)
     }
     static var noiseFloor: Double {
         let value = UserDefaults.standard.object(forKey: "TalkbackNoiseFloor") as? Double ?? -48

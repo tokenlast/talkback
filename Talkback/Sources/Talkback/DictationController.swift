@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CoreMedia
 import Foundation
 import Speech
@@ -109,6 +110,17 @@ final class DictationController {
     private func begin(transcriber: SpeechTranscriber, format: AVAudioFormat, analyzer: SpeechAnalyzer, id: UUID) throws {
         let engine = AVAudioEngine()
         let input = engine.inputNode
+        let chosenUID = UserDefaults.standard.string(forKey: "TalkbackMicrophoneUID")
+        guard let microphone = Microphones.selected(in: Microphones.inputs, uid: chosenUID) else {
+            throw VoiceError(chosenUID?.isEmpty == false ? "Selected microphone unavailable. Choose an input in Settings." : "No built-in microphone. Choose an input in Settings.")
+        }
+        guard let unit = input.audioUnit else { throw VoiceError("Microphone audio unit unavailable.") }
+        var device = microphone.id
+        let deviceStatus = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, UInt32(MemoryLayout.size(ofValue: device)))
+        guard deviceStatus == noErr, Microphones.currentDevice(unit) == microphone.id else {
+            throw VoiceError("Could not open the selected microphone (\(deviceStatus)).")
+        }
+        let microphoneBinding = MicrophoneBinding(unit: unit, id: microphone.id)
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw VoiceError("No microphone input is available.")
@@ -147,6 +159,13 @@ final class DictationController {
             do {
                 let packet = try conversion.convert(buffer)
                 guard packet.buffer.frameLength > 0 else { return }
+                guard microphoneBinding.isCurrent else {
+                    Task { @MainActor [weak self] in
+                        guard let self, self.generation == id else { return }
+                        self.fail("Selected microphone disconnected.")
+                    }
+                    return
+                }
                 let audible = VoiceAudioConverter.isAudible(buffer, thresholdDB: noiseDB)
                 let now = ProcessInfo.processInfo.systemUptime
                 // Let SpeechAnalyzer append exact frame durations. Rounding

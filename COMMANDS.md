@@ -1,7 +1,8 @@
 # Talkback commands
 
-English voice commands are checked locally. Say one, then pause. The command bar
-also accepts typed English and the inherited Japanese command grammar.
+English voice commands are checked locally. Say one, then pause; Talkback keeps
+listening for the next command. The CLI also supports typed English and the
+inherited Japanese grammar. There is no floating command bar.
 
 ## Targets
 
@@ -65,8 +66,10 @@ generic device categories do not select an arbitrary instrument.
 - `set this clip gain to -3 dB`
 - Note transforms: quantize, legato, transpose, velocity, and duplicate loop.
 
-These depend on Live's selected/open clip and supported clip type. Talkback can
-ask for clarification; the visible command bar is used to answer, not background speech.
+These depend on Live's selected/open clip and supported clip type. If Talkback
+needs clarification, choose an offered answer from its menu or repeat the full
+command with an explicit target. Confirmations also appear in the menu and expire
+after 20 seconds. Ambient replies do not answer old questions.
 
 ## Undo and multiple actions
 

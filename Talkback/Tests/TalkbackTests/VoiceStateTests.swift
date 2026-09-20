@@ -2,6 +2,26 @@ import XCTest
 @testable import Talkback
 
 final class VoiceStateTests: XCTestCase {
+    func testExpandedPauseBounds() {
+        XCTAssertEqual(TalkbackSettings.boundedPause(0.01), 0.1)
+        XCTAssertEqual(TalkbackSettings.boundedPause(20), 10)
+        XCTAssertEqual(TalkbackSettings.boundedPause(8), 8)
+        XCTAssertEqual(TalkbackSettings.boundedPause(.nan), 0.7)
+        XCTAssertEqual(TalkbackSettings.boundedPause(.infinity), 0.7)
+    }
+
+    func testVeryShortAndLongPauses() {
+        var state = VoiceEndpoint()
+        state.textChanged(at: 1)
+        state.audioArrived(at: 1, audible: true)
+        state.audioArrived(at: 1.15, audible: false)
+        XCTAssertTrue(state.shouldFinish(at: 1.15, hasText: true, pause: 0.1))
+        XCTAssertFalse(state.shouldFinish(at: 1.15, hasText: true, pause: 10))
+        state.audioArrived(at: 11.1, audible: false)
+        XCTAssertTrue(state.shouldFinish(at: 11.1, hasText: true, pause: 10))
+        state.textChanged(at: 11.05)
+        XCTAssertFalse(state.shouldFinish(at: 11.1, hasText: true, pause: 10))
+    }
     func testConfigurablePauseStillRequiresStableWords() {
         var state = VoiceEndpoint()
         state.textChanged(at: 1)

@@ -112,7 +112,7 @@ class Talkback(ControlSurface):
         action = cmd.get("action", "")
         try:
             if action == "ping":
-                answer = {"ok": True, "message": "pong", "version": "0.19"}
+                answer = {"ok": True, "message": "pong", "version": "0.20"}
             elif action == "bridge":
                 request = cmd.get("request")
                 ops = cmd.get("ops")
@@ -206,6 +206,12 @@ class Talkback(ControlSurface):
                 raise ValueError("invalid_args")
             if str(member) == "str_for_value" and len(args) != 1:
                 raise ValueError("invalid_args")
+            if path == "live_set" and member == "continue_playing":
+                # Enabling Record can already start Live's count-in. Calling
+                # continue_playing again during it stalls transport in Live 12.
+                # Resume is idempotent: do not interrupt an active start/play.
+                if target.is_playing or _safe(lambda: target.is_counting_in, False):
+                    return {"ok": True, "value": None}
             return {"ok": True, "value": getattr(target, str(member))(*args)}
         value = float(op.get("value"))
         if not math.isfinite(value):

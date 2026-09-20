@@ -14,6 +14,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
     private let listeningButton = NSButton(checkboxWithTitle: "Listening", target: nil, action: nil)
     private let cloudButton = NSButton(checkboxWithTitle: "Use cloud interpretation for unfamiliar commands", target: nil, action: nil)
     private let voiceLabel = NSTextField(wrappingLabelWithString: "")
+    private let connectionLabel = NSTextField(labelWithString: "Checking Live…")
     private let window: NSWindow
     private var timer: Timer?
     private var states: [State] = [.pending, .pending, .pending, .pending]
@@ -37,11 +38,12 @@ final class Onboarding: NSObject, NSWindowDelegate {
     init(viewModel: ViewModel, voice: PanelController) {
         self.viewModel = viewModel
         self.voice = voice
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 780),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 460),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
         window.delegate = self
         window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 560, height: 360)
         build()
         viewModel.onSetupMessage = { [weak self] message in self?.receive(message) }
         viewModel.onSetupConnection = { [weak self] line in
@@ -70,6 +72,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(window.contentView)
         NSApp.activate(ignoringOtherApps: true)
         startPolling()
     }
@@ -113,7 +116,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 22
+        stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         material.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -129,9 +132,8 @@ final class Onboarding: NSObject, NSWindowDelegate {
         listeningButton.action = #selector(toggleListening)
         listeningButton.font = NSFont(name: "Helvetica", size: 14)
         voiceLabel.font = NSFont(name: "Helvetica", size: 12)
-        let voiceHelp = NSTextField(wrappingLabelWithString: "Speech stays on this Mac. Pause to send, or open the command bar and press Return. English voice commands.")
-        voiceHelp.font = NSFont(name: "Helvetica", size: 12)
-        let voiceStack = NSStackView(views: [listeningButton, voiceLabel, voiceHelp])
+        connectionLabel.font = NSFont(name: "Helvetica", size: 12)
+        let voiceStack = NSStackView(views: [listeningButton, voiceLabel, connectionLabel])
         voiceStack.orientation = .vertical
         voiceStack.alignment = .leading
         voiceStack.spacing = 8
@@ -139,6 +141,9 @@ final class Onboarding: NSObject, NSWindowDelegate {
         voiceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.addArrangedSubview(preferences)
         preferences.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        preferences.onAdvancedChange = { [weak self] expanded in
+            self?.window.setContentSize(NSSize(width: 560, height: expanded ? 760 : 460))
+        }
         for index in 0..<4 {
             let glyph = NSImageView()
             glyph.setAccessibilityElement(true)
@@ -159,7 +164,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
             let row = NSStackView(views: [glyph, body])
             row.alignment = .top
             row.spacing = 12
-            stack.addArrangedSubview(row)
+            preferences.advancedContent.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
             help.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
             switch index {
@@ -244,6 +249,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
     }
 
     private func refresh() {
+        preferences.refreshMicrophones()
         refreshVoice()
         let sourceVersion = version(in: DaemonClient.remoteScriptSource)
         let installedVersion = version(in: destination)
@@ -257,6 +263,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
         installButton.isEnabled = sourceVersion != nil && states[0] != .ok
         installButton.toolTip = destination.path
         states[1] = liveStatus?.live == true ? .ok : (liveStatus != nil || connectionProblem != nil ? .problem : .pending)
+        connectionLabel.stringValue = states[1] == .ok ? "Connected to Live · on-device speech" : "Live not connected — open Advanced"
         helps[1].stringValue = text(.selectLiveHelp)
         let cloud = UserDefaults.standard.bool(forKey: "TalkbackAllowJev")
         states[2] = !cloud || hasKey || liveStatus?.jev == true ? .ok : (keyFailed ? .problem : .pending)
