@@ -100,7 +100,7 @@ class LiveJev(ControlSurface):
         action = cmd.get("action", "")
         try:
             if action == "ping":
-                answer = {"ok": True, "message": "pong", "version": "0.16"}
+                answer = {"ok": True, "message": "pong", "version": "0.17"}
             elif action == "bridge":
                 request = cmd.get("request")
                 ops = cmd.get("ops")
@@ -184,7 +184,7 @@ class LiveJev(ControlSurface):
             return {"ok": True, "value": getattr(target, str(member))}
         if name == "lom_set":
             value = self._coerce_set_value(str(member), op.get("value"))
-            setattr(target, str(member), value)
+            self._set_preserving_track_selection(target, str(member), value)
             return {"ok": True, "value": {"ok": True}}
         if name == "lom_call":
             args = op.get("args")
@@ -198,8 +198,23 @@ class LiveJev(ControlSurface):
         value = float(op.get("value"))
         if not math.isfinite(value):
             raise ValueError("invalid_value")
-        target.value = value
+        self._set_preserving_track_selection(target, "value", value)
         return {"ok": True, "value": self._parameter_payload(target, path)}
+
+    def _set_preserving_track_selection(self, target, member, value):
+        # Live can move song.view.selected_track when a Remote Script changes a
+        # different track's solo/arm state. Keep subsequent pronoun commands
+        # ("mute it", "lower it") anchored to the track the user selected.
+        song = self.song()
+        selected = song.view.selected_track
+        try:
+            setattr(target, member, value)
+        finally:
+            try:
+                if song.view.selected_track != selected:
+                    song.view.selected_track = selected
+            except Exception:
+                pass
 
     def _coerce_set_value(self, prop, raw):
         if prop in ("loop", "metronome", "session_record", "overdub", "mute", "solo", "arm", "fold_state", "looping", "warping"):
