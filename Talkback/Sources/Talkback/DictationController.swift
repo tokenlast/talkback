@@ -14,6 +14,9 @@ final class DictationController {
     var onStatus: ((String) -> Void)?
 
     private var engine: AVAudioEngine?
+    private var configurationObserver: NSObjectProtocol?
+    private var inputReceived = false
+    private var inputRecoveryAttempted = false
     private var analyzer: SpeechAnalyzer?
     private var continuation: AsyncStream<AnalyzerInput>.Continuation?
     private var tasks: [Task<Void, Never>] = []
@@ -68,6 +71,8 @@ final class DictationController {
 
     func stop() {
         generation = UUID()
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        configurationObserver = nil
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
         finishTask?.cancel()
@@ -94,6 +99,8 @@ final class DictationController {
         isFinishing = false
         isPreparing = false
         isListening = false
+        inputReceived = false
+        inputRecoveryAttempted = false
     }
 
     /// Flush one utterance while keeping the microphone and model running.
@@ -198,6 +205,12 @@ final class DictationController {
                     }
                     self.audioTime = packet.end
                     self.lastAudioAt = now
+                    self.inputRecoveryAttempted = false
+                    if !self.inputReceived {
+                        self.inputReceived = true
+                        self.onStatus?("Listening")
+                        Log.shared.write("voice microphone delivering audio")
+                    }
                     self.endpoint.audioArrived(at: now, audible: audible)
                     self.traceBuffers += 1
                     if audible { self.traceAudible += 1 }
@@ -211,12 +224,21 @@ final class DictationController {
             }
         }
         self.engine = engine
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+        ) { [weak self] _ in
+            // Never stop/release an engine on CoreAudio's notification queue.
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == id else { return }
+                self.recoverInput(format: inputFormat, binding: microphoneBinding)
+            }
+        }
         engine.prepare()
         try engine.start()
         isPreparing = false
         isListening = true
         lastAudioAt = ProcessInfo.processInfo.systemUptime
-        onStatus?("Listening")
+        onStatus?("Starting microphone…")
         Log.shared.write("voice microphone started; on-device SpeechAnalyzer")
         tasks.append(Task { [weak self] in
             while !Task.isCancelled {
@@ -233,7 +255,14 @@ final class DictationController {
                     self.traceAudible = 0
                     self.tracePeak = -160
                 }
-                if now - self.lastAudioAt > 3 { self.fail("Microphone input interrupted."); return }
+                if now - self.lastAudioAt > 3 {
+                    if let engine = self.engine, !engine.isRunning, !self.inputRecoveryAttempted {
+                        self.recoverInput(format: inputFormat, binding: microphoneBinding)
+                    } else {
+                        self.fail("Microphone input interrupted.")
+                    }
+                    continue
+                }
                 if self.isFinishing {
                     self.commitIfReady()
                     if self.isFinishing && now - self.finishRequestedAt > 3 { self.fail("Speech finalization timed out."); return }
@@ -243,6 +272,37 @@ final class DictationController {
             }
         })
     }
+
+    private func recoverInput(format: AVAudioFormat, binding: MicrophoneBinding) {
+        guard let engine, !engine.isRunning else { return }
+        // Reuse the already-bound engine when only its running state changed.
+        // Recreating it can repeatedly trigger the same asynchronous I/O change.
+        // Never resume an utterance across a capture gap, or a different input.
+        guard !inputRecoveryAttempted, !transcript.hasSpeech, !isFinishing,
+              binding.isCurrent, engine.inputNode.outputFormat(forBus: 0) == format else {
+            fail("Microphone configuration changed.")
+            return
+        }
+        inputRecoveryAttempted = true
+        inputReceived = false
+        endpoint = VoiceEndpoint()
+        onStatus?("Reconnecting microphone…")
+        do {
+            engine.prepare()
+            try engine.start()
+            lastAudioAt = ProcessInfo.processInfo.systemUptime
+            Log.shared.write("voice restarted stopped audio engine on selected microphone")
+        } catch { fail("Could not restart microphone input.") }
+    }
+
+    #if DEBUG
+    // Used only by the explicit, read-only microphone recovery smoke test.
+    func simulateInputStopForTesting() {
+        guard let engine else { return }
+        engine.stop()
+        NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
+    }
+    #endif
 
     private func commitIfReady() {
         guard let boundary = finishBoundary, transcript.isFinal(through: boundary) else { return }

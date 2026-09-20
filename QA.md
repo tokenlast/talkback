@@ -14,7 +14,7 @@ Python coverage includes the local grammar, target checks, undo/rollback, socket
 protocol, voice admission, command mappings, recording modes, and group-placement
 guards. One inherited test is skipped because the upstream private publishing
 script is intentionally absent from the public repository.
-Latest Python run: 351 tests, zero failures, one skipped. Last native run: 21 tests passed.
+Latest Python run: 352 tests, zero failures, one skipped. Last native run: 21 tests passed.
 
 The reported phrase “Can you start a new track in instruments?” is covered through
 voice admission, local parsing, daemon dispatch, and a mocked Live group-creation
@@ -136,6 +136,23 @@ certificate-signed updates retain a stable designated requirement.
 The installed Developer ID signature and staged/installed binary equality passed.
 The normal launch connected to Live and visibly reached “Waiting for microphone
 permission…”; final microphone consent and a spoken Live edit remain user gates.
+
+The user subsequently confirmed spoken track creation worked. A later failure
+showed repeated `Microphone input interrupted` errors and audio-engine configuration
+notifications. The controller now restarts a stopped, still-bound engine when its
+format is unchanged, rejects recovery across an unfinished utterance, and only
+reports Listening after receiving audio. Failed starts no longer reset retry backoff.
+The exact phrase `add Operator to a new track` passes local voice admission and
+resolves to a new MIDI track with Operator in the regression suite.
+
+`scripts/microphone_recovery_smoke.swift` is an opt-in real-input test, compiled
+with `-D DEBUG` and the same controller sources as the synthetic speech test.
+Run the resulting executable with `--microphone`. It has no Live connection,
+saves no audio/transcripts, simulates a stopped-engine configuration notification,
+and requires resumed physical buffers plus four seconds without an input failure.
+This physical recovery test passed locally; the installed signature also verified.
+The test-only stop hook is excluded from release builds. Actual spoken Operator
+insertion and real device-switch stress testing still require separate acceptance.
 
 ## Manual release gates
 

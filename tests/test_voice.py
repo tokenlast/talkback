@@ -98,6 +98,14 @@ class VoiceTests(unittest.TestCase):
                 self.assertEqual(intent.track, track)
                 self.assertEqual(abs(intent.number.value), abs(number))
 
+    def test_operator_on_new_track_voice_request(self):
+        value = admit_voice("Add Operator to a new track.")
+        self.assertIsNotNone(value)
+        intent = parse_local(value, sample_snapshot())
+        self.assertEqual(intent.action, Action.ADD_TRACK_WITH_DEVICE)
+        self.assertEqual(intent.native_device, "Operator")
+        self.assertEqual(intent.track_kind, "midi")
+
     def test_conversation_never_reaches_jev_or_live(self):
         bridge = mock.Mock()
         requester = mock.Mock(side_effect=AssertionError("Network must not be used"))
