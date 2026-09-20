@@ -20,7 +20,11 @@ struct VoiceTranscript {
     private var segments: [Segment] = []
     private(set) var overflowed = false
     var hasSpeech: Bool { !segments.isEmpty }
-    var finalizedThrough = 0.0
+    private(set) var finalizedThrough = 0.0
+    mutating func finalize(through time: Double) {
+        guard time.isFinite else { return }
+        finalizedThrough = max(finalizedThrough, time)
+    }
     mutating func update(start: Double, end: Double, text: String, isFinal: Bool) {
         guard start.isFinite, end.isFinite, end >= start else { return }
         segments.removeAll { ($0.start < end && $0.end > start) || $0.start == start }
@@ -35,7 +39,11 @@ struct VoiceTranscript {
     var text: String { overflowed ? "" : joined(segments) }
     func isFinal(through end: Double) -> Bool {
         let current = segments.filter { $0.start < end }
-        return !current.isEmpty && current.allSatisfy { $0.isFinal && $0.end <= end + 0.01 }
+        // A later result's watermark also finalizes earlier, unchanged partials.
+        // Apple does not guarantee a replacement result with isFinal == true.
+        return !current.isEmpty && current.allSatisfy {
+            ($0.isFinal || $0.end <= finalizedThrough) && $0.end <= end + 0.01
+        }
     }
     mutating func consume(through end: Double) -> String {
         let ready = segments.filter { $0.end <= end + 0.01 }
@@ -45,6 +53,8 @@ struct VoiceTranscript {
         return answer
     }
     private func joined(_ values: [Segment]) -> String {
-        values.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: " ")
+        values.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains) }
+            .joined(separator: " ")
     }
 }

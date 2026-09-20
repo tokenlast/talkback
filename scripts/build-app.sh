@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build Talkback, apply a local signature, and install it in ~/Applications.
+# Build Talkback, sign it, and install it in ~/Applications.
 # Usage: build-app.sh [--no-install]   (--no-install only builds and signs the app)
+# TALKBACK_SIGN_IDENTITY overrides automatic selection of a unique Developer ID.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -22,6 +23,24 @@ trash_existing() { [[ ! -e "$1" ]] || /usr/bin/trash "$1"; }
 
 command -v swift >/dev/null || fail "swift was not found (install Xcode)"
 [[ -x "$PYTHON" ]] || fail "$PYTHON was not found"
+
+# Ad hoc signatures change identity on every rebuild, invalidating microphone
+# permission. Prefer a stable certificate, without baking a developer into source.
+SIGN_IDENTITY="${TALKBACK_SIGN_IDENTITY:-}"
+if [[ -z "$SIGN_IDENTITY" ]]; then
+  SIGN_IDENTITIES=()
+  while IFS= read -r identity; do
+    SIGN_IDENTITIES+=("$identity")
+  done < <(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*\([A-F0-9]\{40\}\) "Developer ID Application:.*"/\1/p')
+  if [[ "${#SIGN_IDENTITIES[@]}" -eq 1 ]]; then
+    SIGN_IDENTITY="${SIGN_IDENTITIES[0]}"
+  else
+    SIGN_IDENTITY="-"
+  fi
+fi
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  say "Warning: ad hoc signing may require microphone approval after every rebuild. Set TALKBACK_SIGN_IDENTITY to a stable certificate."
+fi
 
 say "1/5 Building the app"
 (cd "$PKG_DIR" && swift build -c release --scratch-path "$BUILD_DIR" >/dev/null) || fail "swift build failed"
@@ -58,8 +77,8 @@ cp "$SAY_DIR/COMMANDS.md" "$APP_DIR/Contents/Resources/COMMANDS.md"
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
 plutil -lint "$APP_DIR/Contents/Info.plist" >/dev/null || fail "Info.plist is invalid"
 
-say "4/5 Applying an ad hoc signature"
-codesign --force --deep -s - "$APP_DIR" >/dev/null 2>&1 || fail "codesign failed"
+say "4/5 Signing the app"
+codesign --force --deep -s "$SIGN_IDENTITY" "$APP_DIR" >/dev/null 2>&1 || fail "codesign failed"
 codesign --verify --deep --strict "$APP_DIR" || fail "Signature verification failed"
 
 if [[ "$INSTALL" -eq 1 ]]; then

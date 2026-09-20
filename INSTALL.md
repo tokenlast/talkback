@@ -13,7 +13,12 @@ bash scripts/build-app.sh
 open "$HOME/Applications/Talkback.app"
 ```
 
-The local build is ad-hoc signed, not a notarized public binary. The build script
+The build uses your unique available Developer ID certificate, if present. Set
+`TALKBACK_SIGN_IDENTITY` to choose a different signing identity explicitly. Without
+a unique certificate it falls back to ad hoc signing, which can invalidate
+microphone permission after every rebuild. Certificate signing provides a stable
+identity; switching from an ad hoc build requires microphone approval once more.
+This script does not notarize the app. The build script
 keeps the previous installed app as `~/dev/talkback-build/stage.noindex/previous/Talkback.app` and
 moves older generated artifacts to Trash. The app bundles the daemon source;
 it does not need the source checkout to stay in place.

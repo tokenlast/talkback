@@ -14,7 +14,7 @@ Python coverage includes the local grammar, target checks, undo/rollback, socket
 protocol, voice admission, command mappings, recording modes, and group-placement
 guards. One inherited test is skipped because the upstream private publishing
 script is intentionally absent from the public repository.
-Latest Python run: 351 tests, zero failures, one skipped. Last native run: 16 tests passed.
+Latest Python run: 351 tests, zero failures, one skipped. Last native run: 21 tests passed.
 
 The reported phrase “Can you start a new track in instruments?” is covered through
 voice admission, local parsing, daemon dispatch, and a mocked Live group-creation
@@ -22,13 +22,19 @@ surface. Polite question punctuation is accepted; general questions, negations,
 missing/duplicate groups, and unavailable group-aware control surfaces stay safe.
 The installed parser previously rejected the question mark or treated “start a
 new” as a plug-in name. This regression is fixed without changing the speech engine.
-These mocked checks are not physical-microphone-to-Live proof. The separately
-observed speech-finalization timeouts remain an open real-world acceptance issue.
+These mocked checks are not physical-microphone-to-Live proof. Continuous human
+speech-command execution remains an open real-world acceptance issue.
 
 The native tests cover silence/stability, configurable pause, replacement of
 volatile speech results, final-only submission, repeated consumption, future
 segments, discarding oversized conversation without executing a suffix, built-in
 microphone defaults, stable device identity, and refusing an unavailable input.
+They also cover finalization watermarks for unchanged partial results, invalid and
+cross-boundary watermarks, silence-only punctuation, and microphone RMS thresholds.
+The recognizer now honors consumed-result watermarks instead of requiring every
+partial to arrive again with `isFinal`. Closed input/result streams trigger recovery
+rather than silently leaving the listener inactive. These fixes address concrete
+failure paths; they do not prove the cause of every previously observed timeout.
 The supplied-logo checks lock the screenshot's Display P3 orange, black-only menu
 ink in both listening states, the app icon's retained white keyline, padded
 grayscale-mask decoding, and fixed menu dimensions. Edge coverage is antialiased;
@@ -52,7 +58,7 @@ xcrun swiftc -parse-as-library -target arm64-apple-macos26.0 \
 ```
 
 Twenty consecutive fixture phrases passed through a single on-device analyzer.
-In the final run, finalization took 16–48 ms after accelerated fixture delivery.
+In the watermark-fix run, finalization took 17–47 ms after accelerated fixture delivery.
 These are not microphone-to-Live latency measurements and exclude the configured
 pause. This test caught an audio-timestamp-overlap defect: input now uses the
 analyzer's exact contiguous frame timeline, not rounded timestamps.
@@ -107,6 +113,29 @@ pass must not be described as a full continuous-listening acceptance test. Nativ
 UI automation subsequently became unavailable (control-server initialization
 timeout), preventing further interactive diagnosis in that run. QA track mute,
 solo, and recording/transport states were restored afterward.
+
+A later user-spoken harmless probe verified nonzero built-in microphone audio,
+partial and final recognition, foreground admission, and daemon receipt. The local
+filter ignored this non-command as expected. A second utterance was rejected after
+the foreground app changed. This verifies the input path, not a successful Live edit.
+The open set subsequently changed to a separate Constellate QA project without an
+Instruments group; it was left untouched. The reported track-creation phrase still
+needs a physical-microphone acceptance check against the intended destination.
+
+`--voice-diagnostics` temporarily logs only pipeline metadata (levels, timing,
+character counts, admission flags, response kinds), never audio or transcript words.
+It is off by default and expires after 15 minutes. Normal relaunch disables it.
+
+Normal app relaunch exposed a separate permission failure: macOS rejected the
+previous microphone approval because the ad hoc signature's code hash changed.
+The build script now selects a unique available Developer ID certificate, or an
+explicit `TALKBACK_SIGN_IDENTITY`. Its ad hoc fallback warns about permission loss.
+The app explicitly displays a pending microphone-permission request. Switching
+from an ad hoc build to certificate signing requires fresh OS consent; subsequent
+certificate-signed updates retain a stable designated requirement.
+The installed Developer ID signature and staged/installed binary equality passed.
+The normal launch connected to Live and visibly reached “Waiting for microphone
+permission…”; final microphone consent and a spoken Live edit remain user gates.
 
 ## Manual release gates
 

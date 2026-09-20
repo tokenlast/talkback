@@ -26,6 +26,10 @@ final class DictationController {
     private var committedThrough = 0.0
     private var finishBoundary: Double?
     private var finishRequestedAt = 0.0
+    private var traceBuffers = 0
+    private var traceAudible = 0
+    private var tracePeak = -160.0
+    private var traceLastAt = 0.0
     private(set) var isPreparing = false
     private(set) var isFinishing = false
     private(set) var isListening = false {
@@ -37,7 +41,8 @@ final class DictationController {
         stop()
         let id = generation
         isPreparing = true
-        onStatus?("Preparing speech…")
+        onStatus?(AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
+                  ? "Waiting for microphone permission…" : "Preparing speech…")
         let locale = language == .ja ? "ja-JP" : "en-US"
         tasks.append(Task { [weak self] in
             guard let self else { return }
@@ -46,6 +51,7 @@ final class DictationController {
                     throw VoiceError("Allow Talkback in System Settings → Privacy & Security → Microphone.")
                 }
                 guard self.generation == id else { return }
+                self.onStatus?("Preparing speech…")
                 let (transcriber, format) = try await Self.module(locale: locale)
                 guard self.generation == id else { return }
                 let analyzer = SpeechAnalyzer(modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .processLifetime))
@@ -81,6 +87,10 @@ final class DictationController {
         audioTime = 0
         committedThrough = 0
         finishBoundary = nil
+        traceBuffers = 0
+        traceAudible = 0
+        tracePeak = -160
+        traceLastAt = 0
         isFinishing = false
         isPreparing = false
         isListening = false
@@ -94,11 +104,13 @@ final class DictationController {
         finishBoundary = audioTime
         finishRequestedAt = ProcessInfo.processInfo.systemUptime
         let boundary = audioTime
+        VoiceTrace.write("finish requested boundary=\(boundary) chars=\(transcript.text.count) overflow=\(transcript.overflowed)")
         finishTask = Task { [weak self] in
             do {
                 // The endpoint is inclusive: stay inside the last audio buffer.
                 try await analyzer.finalize(through: CMTime(seconds: max(0, boundary - 0.001), preferredTimescale: 1_000_000))
                 guard let self, self.generation == id else { return }
+                VoiceTrace.write("finish returned boundary=\(boundary) final=\(self.transcript.isFinal(through: boundary)) watermark=\(self.transcript.finalizedThrough)")
                 self.commitIfReady()
             } catch {
                 guard let self, self.generation == id else { return }
@@ -127,6 +139,7 @@ final class DictationController {
         }
         let conversion = try VoiceAudioConverter(from: inputFormat, to: format)
         let noiseDB = TalkbackSettings.noiseFloor
+        VoiceTrace.write("input name=\(microphone.name) builtIn=\(microphone.builtIn) format=\(inputFormat) target=\(format) threshold=\(noiseDB) pause=\(TalkbackSettings.pause)")
         let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream(bufferingPolicy: .bufferingOldest(256))
         self.continuation = continuation
         tasks.append(Task { [weak self] in
@@ -134,15 +147,18 @@ final class DictationController {
                 for try await result in transcriber.results {
                     guard let self, self.generation == id else { return }
                     let end = result.range.end.seconds
+                    VoiceTrace.write("result start=\(result.range.start.seconds) end=\(end) final=\(result.isFinal) watermark=\(result.resultsFinalizationTime.seconds) chars=\(result.text.characters.count)")
                     if end > self.committedThrough + 0.001 {
                         self.transcript.update(start: result.range.start.seconds, end: end,
                                                text: String(result.text.characters), isFinal: result.isFinal)
                         self.endpoint.textChanged(at: ProcessInfo.processInfo.systemUptime)
-                        self.onTranscript?(self.transcript.text)
+                        if !self.transcript.text.isEmpty { self.onTranscript?(self.transcript.text) }
                     }
-                    self.transcript.finalizedThrough = max(self.transcript.finalizedThrough, result.resultsFinalizationTime.seconds)
+                    self.transcript.finalize(through: result.resultsFinalizationTime.seconds)
                     self.commitIfReady()
                 }
+                guard let self, self.generation == id else { return }
+                self.fail("Speech recognition ended.")
             } catch {
                 guard let self, self.generation == id else { return }
                 self.fail("Speech recognition stopped.")
@@ -167,16 +183,25 @@ final class DictationController {
                     return
                 }
                 let audible = VoiceAudioConverter.isAudible(buffer, thresholdDB: noiseDB)
+                let level = VoiceTrace.enabled ? VoiceAudioConverter.levelDB(buffer) : -160
                 let now = ProcessInfo.processInfo.systemUptime
                 // Let SpeechAnalyzer append exact frame durations. Rounding
                 // timestamps to a different sample rate causes tiny overlaps.
                 let delivery = continuation.yield(AnalyzerInput(buffer: packet.buffer))
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == id else { return }
-                    if case .dropped = delivery { self.fail("Speech input could not keep up."); return }
+                    switch delivery {
+                    case .dropped: self.fail("Speech input could not keep up."); return
+                    case .terminated: self.fail("Speech input ended."); return
+                    case .enqueued: break
+                    @unknown default: self.fail("Speech input unavailable."); return
+                    }
                     self.audioTime = packet.end
                     self.lastAudioAt = now
                     self.endpoint.audioArrived(at: now, audible: audible)
+                    self.traceBuffers += 1
+                    if audible { self.traceAudible += 1 }
+                    self.tracePeak = max(self.tracePeak, level)
                 }
             } catch {
                 Task { @MainActor [weak self] in
@@ -198,6 +223,16 @@ final class DictationController {
                 do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
                 guard let self, self.generation == id else { return }
                 let now = ProcessInfo.processInfo.systemUptime
+                if VoiceTrace.enabled && now - self.traceLastAt >= 5 {
+                    let range = await analyzer.volatileRange
+                    guard self.generation == id else { return }
+                    VoiceTrace.write("analysis range=\(range?.start.seconds ?? -1)...\(range?.end.seconds ?? -1)")
+                    VoiceTrace.write("input buffers=\(self.traceBuffers) audible=\(self.traceAudible) peakDB=\(String(format: "%.1f", self.tracePeak)) audioTime=\(self.audioTime) chars=\(self.transcript.text.count) overflow=\(self.transcript.overflowed) finishing=\(self.isFinishing)")
+                    self.traceLastAt = now
+                    self.traceBuffers = 0
+                    self.traceAudible = 0
+                    self.tracePeak = -160
+                }
                 if now - self.lastAudioAt > 3 { self.fail("Microphone input interrupted."); return }
                 if self.isFinishing {
                     self.commitIfReady()
@@ -212,6 +247,7 @@ final class DictationController {
     private func commitIfReady() {
         guard let boundary = finishBoundary, transcript.isFinal(through: boundary) else { return }
         let text = transcript.consume(through: boundary)
+        VoiceTrace.write("commit boundary=\(boundary) chars=\(text.count)")
         committedThrough = boundary
         finishBoundary = nil
         isFinishing = false
@@ -294,12 +330,16 @@ final class VoiceAudioConverter: @unchecked Sendable {
     }
 
     static func isAudible(_ buffer: AVAudioPCMBuffer, thresholdDB: Double = -48) -> Bool {
-        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return false }
+        levelDB(buffer) > thresholdDB
+    }
+
+    static func levelDB(_ buffer: AVAudioPCMBuffer) -> Double {
+        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return -160 }
         var energy: Float = 0
         for channel in 0..<Int(buffer.format.channelCount) {
             for i in stride(from: 0, to: Int(buffer.frameLength), by: 8) { energy += channels[channel][i] * channels[channel][i] }
         }
         let count = Float((Int(buffer.frameLength) + 7) / 8 * Int(buffer.format.channelCount))
-        return energy / count > Float(pow(10, thresholdDB / 10))
+        return 10 * log10(max(Double(energy / count), 1e-16))
     }
 }

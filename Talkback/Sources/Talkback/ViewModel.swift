@@ -92,7 +92,9 @@ final class ViewModel {
     func submitVoice(_ text: String) -> String? {
         // Ambient transcripts are never saved to history or logged.
         let id = "voice-" + makeID()
-        return client.send(.voice(id: id, text: text)) ? id : nil
+        let sent = client.send(.voice(id: id, text: text))
+        VoiceTrace.write("daemon send=\(sent) chars=\(text.count)")
+        return sent ? id : nil
     }
 
     func refresh() {
@@ -154,6 +156,18 @@ final class ViewModel {
     }
 
     private func receive(_ message: DaemonMessage) {
+        if VoiceTrace.enabled {
+            let trace: (String, String?)
+            switch message {
+            case let .status(value): trace = ("status", value.id)
+            case let .result(value): trace = ("result", value.id)
+            case let .ask(value): trace = ("ask", value.id)
+            case let .confirm(value): trace = ("confirm", value.id)
+            case let .info(value): trace = ("info", value.id)
+            case let .error(value): trace = ("error", value.id)
+            }
+            if trace.1?.hasPrefix("voice-") == true { VoiceTrace.write("daemon response kind=\(trace.0)") }
+        }
         onSetupMessage?(message)
         switch message {
         case let .status(status):

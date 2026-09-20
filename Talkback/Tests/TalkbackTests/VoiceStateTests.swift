@@ -2,6 +2,51 @@ import XCTest
 @testable import Talkback
 
 final class VoiceStateTests: XCTestCase {
+    func testSilencePunctuationDoesNotContaminateNextCommand() {
+        var transcript = VoiceTranscript()
+        transcript.update(start: 0, end: 1, text: "...", isFinal: true)
+        XCTAssertEqual(transcript.text, "")
+        transcript.update(start: 2, end: 3, text: "Can you create a new track?", isFinal: true)
+        XCTAssertEqual(transcript.consume(through: 4), "Can you create a new track?")
+        transcript.update(start: 5, end: 6, text: ".", isFinal: true)
+        XCTAssertTrue(transcript.isFinal(through: 7))
+        XCTAssertEqual(transcript.consume(through: 7), "")
+        XCTAssertFalse(transcript.hasSpeech)
+    }
+
+    func testLaterWatermarkFinalizesUnchangedEarlierPartial() {
+        var transcript = VoiceTranscript()
+        transcript.update(start: 0, end: 1, text: "mute this track", isFinal: false)
+        XCTAssertFalse(transcript.isFinal(through: 2))
+        transcript.update(start: 3, end: 4, text: "solo this track", isFinal: false)
+        transcript.finalize(through: 3)
+        XCTAssertTrue(transcript.isFinal(through: 2))
+        XCTAssertEqual(transcript.consume(through: 2), "mute this track")
+        XCTAssertFalse(transcript.isFinal(through: 5))
+        XCTAssertEqual(transcript.text, "solo this track")
+    }
+
+    func testWatermarkNeverPromotesFutureOrCrossingSpeech() {
+        var transcript = VoiceTranscript()
+        transcript.update(start: 0, end: 3, text: "mute this track", isFinal: false)
+        transcript.finalize(through: 2)
+        XCTAssertFalse(transcript.isFinal(through: 4))
+        transcript.finalize(through: 3)
+        XCTAssertFalse(transcript.isFinal(through: 2))
+        XCTAssertTrue(transcript.isFinal(through: 4))
+    }
+
+    func testInvalidWatermarksCannotFinalizeSpeech() {
+        var transcript = VoiceTranscript()
+        transcript.update(start: 0, end: 1, text: "mute this track", isFinal: false)
+        transcript.finalize(through: .nan)
+        transcript.finalize(through: .infinity)
+        XCTAssertFalse(transcript.isFinal(through: 2))
+        transcript.finalize(through: 1)
+        transcript.finalize(through: 0)
+        XCTAssertEqual(transcript.finalizedThrough, 1)
+    }
+
     func testExpandedPauseBounds() {
         XCTAssertEqual(TalkbackSettings.boundedPause(0.01), 0.1)
         XCTAssertEqual(TalkbackSettings.boundedPause(20), 10)

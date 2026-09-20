@@ -181,6 +181,7 @@ struct Decision: Codable, Sendable {
 }
 
 struct StatusMessage: Decodable, Sendable {
+    let id: String?
     let live: Bool
     let jev: Bool
     let tracks: Int

@@ -459,6 +459,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         dictation.onTranscript = { [weak self] text in
             guard let self else { return }
             if self.utteranceContext == nil { self.utteranceContext = self.canActOnVoice }
+            VoiceTrace.write("context allowed=\(self.utteranceContext == true) frontLive=\(self.canActOnVoice)")
             guard self.isPanelVisible, !self.manualEntry else { return }
             self.inputField.stringValue = text
             self.inputField.currentEditor()?.selectedRange = NSRange(location: text.utf16.count, length: 0)
@@ -466,6 +467,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         dictation.onSilence = { [weak self] text in
             guard let self else { return }
             let admittedContext = self.utteranceContext == true && self.canActOnVoice
+            VoiceTrace.write("admission context=\(admittedContext) chars=\(text.count) typing=\(self.manualEntry) pending=\(self.viewModel.hasPendingConfirmation)")
             self.utteranceContext = nil
             if !self.manualEntry { self.inputField.stringValue = "" }
             guard admittedContext, !text.isEmpty, !self.manualEntry, !self.viewModel.hasPendingConfirmation else { return }

@@ -1,5 +1,16 @@
 import Foundation
 
+/// Opt-in pipeline metadata only: never pass audio or transcript text here.
+enum VoiceTrace {
+    private static let requested = CommandLine.arguments.contains("--voice-diagnostics")
+    private static let startedAt = ProcessInfo.processInfo.systemUptime
+    static var enabled: Bool { requested && ProcessInfo.processInfo.systemUptime - startedAt < 900 }
+    static func write(_ message: @autoclosure () -> String) {
+        guard enabled else { return }
+        Log.shared.write("voice trace " + message())
+    }
+}
+
 final class Log: @unchecked Sendable {
     static let shared = Log()
 

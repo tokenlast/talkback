@@ -25,6 +25,7 @@ import Speech
                     state.transcript.update(start: result.range.start.seconds, end: result.range.end.seconds,
                                             text: String(result.text.characters), isFinal: result.isFinal)
                 }
+                state.transcript.finalize(through: result.resultsFinalizationTime.seconds)
             }
         }
         try await analyzer.start(inputSequence: stream)
