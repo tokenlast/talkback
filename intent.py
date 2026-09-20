@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from functools import lru_cache
 import json
+import os
 from pathlib import Path
 import re
 from typing import Iterable, Any, Literal, Mapping, Callable
@@ -28,6 +29,8 @@ class Action(Enum):
     CONTINUE = "continue"
     RECORD_ON = "record_on"
     RECORD_OFF = "record_off"
+    SESSION_RECORD_ON = "session_record_on"
+    SESSION_RECORD_OFF = "session_record_off"
     OVERDUB_ON = "overdub_on"
     OVERDUB_OFF = "overdub_off"
     LOOP_ON = "loop_on"
@@ -133,6 +136,7 @@ class Intent:
     clip_name: str | None = None
     clip_path: str | None = None
     tracks: tuple[int, ...] = ()
+    group_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,6 +165,8 @@ ACTION_CRITERIA = {
     "continue": "止めた位置から再生を続ける（続きから・続けて）",
     "record_on": "録音を始める（録音・レコーディング開始・REC）",
     "record_off": "録音を止める（録音停止・録音やめて）",
+    "session_record_on": "セッション録音開始",
+    "session_record_off": "セッション録音停止",
     "overdub_on": "オーバーダブ（重ね録り）をオンにする",
     "overdub_off": "オーバーダブを切る",
     "loop_on": "曲のループ再生をオンにする（ループして・繰り返して）",
@@ -208,7 +214,8 @@ _ACTION_CRITERIA_EN = {
     "mute": "Mute a track", "unmute": "Unmute a track", "solo": "Solo a track", "unsolo": "Unsolo a track",
     "tempo": "Change tempo or BPM", "play": "Start playback", "stop": "Stop playback",
     "param": "Change a device parameter", "continue": "Resume playback from the current position",
-    "record_on": "Start session recording", "record_off": "Stop session recording",
+    "record_on": "Start Arrangement recording", "record_off": "Stop Arrangement recording",
+    "session_record_on": "Start Session recording", "session_record_off": "Stop Session recording",
     "overdub_on": "Turn overdub on", "overdub_off": "Turn overdub off",
     "loop_on": "Turn song loop on", "loop_off": "Turn song loop off",
     "metronome_on": "Turn the metronome or click on", "metronome_off": "Turn the metronome or click off",
@@ -255,6 +262,7 @@ ACTION_LABELS = {
     "solo": "ソロ", "unsolo": "ソロ解除", "tempo": "テンポ", "play": "再生",
     "stop": "停止", "param": "つまみ", "none": "該当なし",
     "continue": "続きから再生", "record_on": "録音開始", "record_off": "録音停止",
+    "session_record_on": "セッション録音開始", "session_record_off": "セッション録音停止",
     "overdub_on": "オーバーダブ", "overdub_off": "オーバーダブ解除", "loop_on": "ループ", "loop_off": "ループ解除",
     "metronome_on": "メトロノーム", "metronome_off": "メトロノーム停止", "undo": "取り消し", "redo": "やり直し",
     "capture_midi": "MIDIキャプチャ", "tap_tempo": "タップテンポ", "stop_all_clips": "全クリップ停止",
@@ -875,6 +883,30 @@ def _parse_local_ja(utterance: str, snapshot: Snapshot) -> Intent | None:
             track = _local_track(snapshot, target_text)
             if track is not None:
                 return _local_intent(Action.NONE, track=track, refers_previous=1.0)
+    # Numeric mixer phrases are deterministic; they do not need a cloud model.
+    target_prefix = rf"(?:(?P<target>{target_pattern})\s*(?:の音量)?\s*(?:を|の)?\s*)?"
+    numeric_volume = re.fullmatch(target_prefix + rf"(?:音量を?)?\s*(?P<number>{_NUMBER})\s*(?:dB|デシベル)\s*(?P<direction>上げ|あげ|下げ|さげ|に)(?:て|して)?", text, re.IGNORECASE)
+    if numeric_volume:
+        target_text = numeric_volume.group("target")
+        track = _local_track(snapshot, target_text) if target_text else "selected"
+        direction = numeric_volume.group("direction")
+        step = Step.SET if direction == "に" else Step.DOWN_SMALL if direction in {"下げ", "さげ"} else Step.UP_SMALL
+        return _local_intent(Action.VOLUME, track=track, step=step, number=Number(_numeric_value(numeric_volume.group("number")), "db"))
+    send_value = re.fullmatch(target_prefix + rf"(?:send|センド)\s*(?P<send>[a-z])\s*を\s*(?P<number>{_NUMBER})\s*(?:%|％)?\s*に(?:して)?", text, re.IGNORECASE)
+    if send_value:
+        target_text = send_value.group("target")
+        track = _local_track(snapshot, target_text) if target_text else "selected"
+        return _local_intent(Action.SEND, track=track, send=ord(send_value.group("send").lower()) - ord("a"), step=Step.SET, number=Number(_numeric_value(send_value.group("number")), "percent"))
+    pan_value = re.fullmatch(target_prefix + r"(?:パンを?)?\s*(?P<small>少し|ちょっと)?\s*(?P<side>左|右|真ん中|中央)\s*(?:に)?\s*(?P<number>\d+(?:\.\d+)?)?\s*(?:にして|して)?", text)
+    if pan_value:
+        target_text = pan_value.group("target")
+        track = _local_track(snapshot, target_text) if target_text else "selected"
+        side, amount = pan_value.group("side"), pan_value.group("number")
+        if side in {"真ん中", "中央"}:
+            return _local_intent(Action.PAN, track=track, step=Step.SET, number=Number(0.0, "pan"))
+        if amount is not None:
+            return _local_intent(Action.PAN, track=track, step=Step.SET, number=Number(float(amount) * (-1 if side == "左" else 1), "pan"))
+        return _local_intent(Action.PAN, track=track, step=Step.DOWN_SMALL if side == "左" else Step.UP_SMALL)
     volume = re.fullmatch(
         rf"(?P<target>{target_pattern})\s*の\s*音量\s*を\s*(?P<number>{_NUMBER})\s*(?:dB|デシベル)\s*に(?:して)?",
         text,
@@ -1019,6 +1051,9 @@ def detect_language(utterance: str) -> Literal["ja", "en"]:
 def parse_local(utterance: str, snapshot: Snapshot) -> Intent | None:
     if detect_language(utterance) == "ja":
         parsed = _parse_local_ja(utterance, snapshot)
+        if parsed is not None and os.environ.get("TALKBACK_RECORDING_MODE", "arrangement") == "session":
+            action = {Action.RECORD_ON: Action.SESSION_RECORD_ON, Action.RECORD_OFF: Action.SESSION_RECORD_OFF}.get(parsed.action, parsed.action)
+            parsed = replace(parsed, action=action)
     else:
         from intent_en import parse_local_en
         parsed = parse_local_en(utterance, snapshot)
@@ -1048,7 +1083,7 @@ def split_compound(text: str, snapshot: Snapshot) -> list[str]:
         r"(?:してから|して、|して|それから|そして|それと|ついでに|あと|\s*[,;]\s*(?:and\s+)?(?:then|also)\s+|\s*,\s*and\s+|\s+and\s+then\s+|\s+and\s+also\s+|\s+then\s+|\s+and\s+|(?<!\d)[,.;](?!\d)|[、。])",
         re.IGNORECASE,
     )
-    operation = re.compile(r"\b(?:mute|unmute|solo|unsolo|arm|disarm|pan|lower|raise|increase|decrease|rename|play|stop)\b|(?:ミュート|ソロ|アーム|下げ|上げ|改名|再生|停止|止め)", re.IGNORECASE)
+    operation = re.compile(r"\b(?:mute|unmute|solo|unsolo|arm|disarm|pan|lower|raise|increase|decrease|rename|play|stop|turn|start|record)\b|(?:ミュート|ソロ|アーム|下げ|上げ|改名|再生|停止|止め)", re.IGNORECASE)
     boundaries = [match for match in separator.finditer(text) if not covered(*match.span())]
     if not boundaries:
         return [text.strip()]
@@ -1538,6 +1573,7 @@ class PluginRequest:
     text: str | None
     target_text: str | None = None
     target_missing: bool = False
+    group_name: str | None = None
 
 
 def _extract_plugin_request_ja(utterance: str, snapshot: Snapshot) -> PluginRequest | None:
@@ -1587,7 +1623,7 @@ def extract_plugin_request(utterance: str, snapshot: Snapshot) -> PluginRequest 
 def plugin_intent(request: PluginRequest, plugin: str) -> Intent:
     kind = "audio" if request.text == "audio" else "midi"
     name = None if request.text == "audio" else request.text
-    return _local_intent(request.action, track=request.track, text=name, track_kind=kind, plugin=plugin)
+    return replace(_local_intent(request.action, track=request.track, text=name, track_kind=kind, plugin=plugin), group_name=request.group_name)
 
 
 def parse_plugin_phrase(utterance: str, snapshot: Snapshot, catalog: "tuple[str, ...]") -> Intent | None:

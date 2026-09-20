@@ -4,7 +4,7 @@ import Security
 enum Keychain {
     private static var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "com.okinaaudio.livejev",
+         kSecAttrService as String: "es.charlieyat.talkback",
          kSecAttrAccount as String: "TYPESAFE_API_KEY"]
     }
 

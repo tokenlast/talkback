@@ -35,7 +35,7 @@ final class DaemonClient: @unchecked Sendable {
             for: .applicationSupportDirectory,
             in: .userDomainMask
         )[0]
-        let configURL = applicationSupport.appendingPathComponent("LiveJev/config.json")
+        let configURL = applicationSupport.appendingPathComponent("Talkback/config.json")
         guard
             let data = try? Data(contentsOf: configURL),
             let config = try? JSONDecoder().decode(Configuration.self, from: data),
@@ -105,7 +105,7 @@ final class DaemonClient: @unchecked Sendable {
     }
 
     static var resolvedDaemonURL: URL {
-        let path = ProcessInfo.processInfo.environment["LIVE_JEV_DAEMON"]
+        let path = ProcessInfo.processInfo.environment["TALKBACK_DAEMON"]
             .flatMap { $0.isEmpty ? nil : $0 }
             ?? configuredDaemonPath
             ?? bundledURL("daemon/daemon.py")?.path
@@ -114,8 +114,8 @@ final class DaemonClient: @unchecked Sendable {
     }
 
     static var remoteScriptSource: URL {
-        bundledURL("remote_script/LiveJev")
-            ?? resolvedDaemonURL.deletingLastPathComponent().appendingPathComponent("remote_script/LiveJev")
+        bundledURL("remote_script/Talkback")
+            ?? resolvedDaemonURL.deletingLastPathComponent().appendingPathComponent("remote_script/Talkback")
     }
 
     private static func bundledURL(_ path: String) -> URL? {
@@ -125,7 +125,7 @@ final class DaemonClient: @unchecked Sendable {
     }
 
     private static var pythonURL: URL {
-        if let path = ProcessInfo.processInfo.environment["LIVE_JEV_PYTHON"], !path.isEmpty {
+        if let path = ProcessInfo.processInfo.environment["TALKBACK_PYTHON"], !path.isEmpty {
             return URL(fileURLWithPath: path)
         }
         if let bundled = bundledURL("python/bin/python3") { return bundled }
@@ -163,9 +163,18 @@ final class DaemonClient: @unchecked Sendable {
         Log.shared.write("daemon Python: \(process.executableURL!.path)")
         process.arguments = [daemonURL.path]
         var environment = ProcessInfo.processInfo.environment
-        environment["LIVE_JEV_LANG"] = language.rawValue
+        environment["TALKBACK_LANG"] = language.rawValue
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
-        if let key = try? Keychain.read() { environment["TYPESAFE_API_KEY"] = key }
+        let allowCloud = UserDefaults.standard.bool(forKey: "TalkbackAllowJev")
+        environment["TALKBACK_LOCAL_ONLY"] = allowCloud ? "0" : "1"
+        environment["TALKBACK_RECORDING_MODE"] = UserDefaults.standard.string(forKey: "TalkbackRecordingMode") ?? "arrangement"
+        environment["TALKBACK_WAKE_PHRASE"] = UserDefaults.standard.string(forKey: "TalkbackWakePhrase") ?? ""
+        environment["TALKBACK_COMMANDS_FILE"] = TalkbackSettings.commandsURL.path
+        // The desktop setting authorizes Jev only, not the experimental rewriter.
+        environment["TALKBACK_LLM"] = "0"
+        environment.removeValue(forKey: "GEMINI_API_KEY")
+        environment.removeValue(forKey: "TYPESAFE_API_KEY")
+        if allowCloud, let key = try? Keychain.read() { environment["TYPESAFE_API_KEY"] = key }
         process.environment = environment
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe

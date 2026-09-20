@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 from actions import ACTIONS
-from daemon import LiveJevService
+from daemon import TalkbackService
 from intent import (
     ACTION_CRITERIA,
     Action,
@@ -184,6 +184,16 @@ PLUGIN_CASES = {
 
 
 class EnglishIntentTests(unittest.TestCase):
+    def test_track_names_containing_grammar_words_are_preserved(self):
+        base = english_snapshot()
+        for name in ("LJ-SELECTED", "Blue Volume", "Send Room", "Pad-6dB"):
+            snapshot = replace(base, tracks=(replace(base.tracks[0], name=name),) + base.tracks[1:])
+            with self.subTest(name=name):
+                intent = parse_local(f"lower {name} by 2 dB", snapshot)
+                self.assertEqual(intent.action, Action.VOLUME)
+                self.assertEqual(intent.track, 0)
+                self.assertGreaterEqual(intent.track_conf, 0.9)
+
     def setUp(self) -> None:
         self.snapshot = english_snapshot()
 
@@ -254,7 +264,7 @@ class EnglishOutputTests(unittest.TestCase):
                 self.assertFalse(contains_japanese(line), line)
 
     def test_daemon_language_command_and_visible_errors(self) -> None:
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=self.snapshot, key=None)
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=self.snapshot, key=None)
         status = service.process({"id": "1", "cmd": "lang", "value": "en"})
         self.assertEqual(status["line"], "Live 3 tracks / 120 BPM")
         empty = service.process({"id": "2", "text": ""})
@@ -264,7 +274,7 @@ class EnglishOutputTests(unittest.TestCase):
     def test_daemon_english_result_confirmation_and_guidance(self) -> None:
         import daemon as daemon_module
 
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=self.snapshot, key="x", requester=lambda *_: self.fail("Jev was called"))
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=self.snapshot, key="x", requester=lambda *_: self.fail("Jev was called"))
         service.process({"cmd": "lang", "value": "en"})
         result = service.process({"id": "1", "text": "mute Bass"})
         self.assertEqual(result["kind"], "result")

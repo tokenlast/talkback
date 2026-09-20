@@ -1,7 +1,7 @@
 import AppKit
 import QuartzCore
 
-final class LiveJevPanel: NSPanel {
+final class TalkbackPanel: NSPanel {
     var handleUndo: (() -> Bool)?
     var handleCancel: (() -> Void)?
 
@@ -239,6 +239,14 @@ final class ConfirmationButton: CapsuleButton {
 final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDelegate {
     private let viewModel: ViewModel
     private let dictation = DictationController()
+    var onVoiceStateChange: (() -> Void)?
+    private(set) var voiceStatus = "Off"
+    private var manualEntry = false
+    private var utteranceContext: Bool?
+    private var voiceRetryTask: Task<Void, Never>?
+    private var voiceRetryDelay = 2.0
+    private var activationObserver: NSObjectProtocol?
+    var listeningEnabled: Bool { UserDefaults.standard.bool(forKey: "TalkbackListeningEnabled") }
     private let waveform = WaveformView(frame: .zero)
     private let inputField = NSTextField()
     private let undoButton = NSButton(title: "", target: nil, action: nil)
@@ -261,7 +269,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
 
     init(viewModel: ViewModel) {
         self.viewModel = viewModel
-        let panel = LiveJevPanel(
+        let panel = TalkbackPanel(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 52),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
@@ -271,6 +279,14 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         configurePanel(panel)
         buildContent(in: panel)
         configureDictation()
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                // Do not act on a sentence spanning a switch between apps.
+                if self?.utteranceContext != nil { self?.utteranceContext = false }
+            }
+        }
         viewModel.onChange = { [weak self] in self?.render() }
         render()
     }
@@ -307,7 +323,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
             }
         }
         renderContent(animated: false)
-        dictation.start(language: viewModel.interfaceLanguage)
+        reconcileListening()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             Log.shared.write("showAndFocus: active=\(NSApp.isActive) key=\(window.isKeyWindow) front=\(NSWorkspace.shared.frontmostApplication?.localizedName ?? "-")")
         }
@@ -321,7 +337,6 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     private func hide(returnFocus: Bool) {
         guard !isHiding else { return }
         isHiding = true
-        dictation.stop()
         cancelAutoHide()
         cancelProposalExpiry()
         window?.orderOut(nil)
@@ -334,6 +349,8 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         }
         previousApp = nil
         isHiding = false
+        manualEntry = false
+        reconcileListening()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -344,12 +361,16 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     func windowDidMove(_ notification: Notification) {
         guard let window, isPanelVisible else { return }
         UserDefaults.standard.set([Double(window.frame.minX), Double(window.frame.maxY)],
-                                  forKey: "LiveJevPillTopLeft")
+                                  forKey: "TalkbackPillTopLeft")
     }
 
     func controlTextDidChange(_ notification: Notification) {
         cancelAutoHide()
+        manualEntry = true
+        utteranceContext = nil
         if dictation.isListening || dictation.isPreparing { dictation.stop() }
+        voiceStatus = "Paused while typing"
+        onVoiceStateChange?()
     }
 
     private func cancelAutoHide() {
@@ -386,7 +407,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
 
     func toggle() {
         if isPanelVisible {
-            hide()
+            cancelOrHide()
         } else {
             showAndFocus()
         }
@@ -399,12 +420,13 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     ) -> Bool {
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
-            dictation.stop()
             if viewModel.hasPendingConfirmation {
                 cancelAutoHide()
                 inputField.stringValue = ""
                 historyIndex = nil
                 viewModel.answerLatestConfirmation(true)
+            } else if dictation.isListening && !manualEntry {
+                dictation.finish()
             } else {
                 submitInput()
             }
@@ -421,34 +443,89 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     }
 
     private func cancelOrHide() {
+        dictation.stop()
+        utteranceContext = nil
         if viewModel.hasPendingConfirmation {
             cancelAutoHide()
             viewModel.answerLatestConfirmation(false)
         } else {
             hide()
         }
+        reconcileListening()
     }
 
     private func configureDictation() {
         dictation.onTranscript = { [weak self] text in
-            guard let self, self.isPanelVisible else { return }
+            guard let self else { return }
+            if self.utteranceContext == nil { self.utteranceContext = self.canActOnVoice }
+            guard self.isPanelVisible, !self.manualEntry else { return }
             self.inputField.stringValue = text
             self.inputField.currentEditor()?.selectedRange = NSRange(location: text.utf16.count, length: 0)
         }
         dictation.onSilence = { [weak self] text in
-            guard let self, self.isPanelVisible, !self.viewModel.hasPendingConfirmation else { return }
-            self.inputField.stringValue = text
-            self.submitInput()
+            guard let self else { return }
+            let admittedContext = self.utteranceContext == true && self.canActOnVoice
+            self.utteranceContext = nil
+            if !self.manualEntry { self.inputField.stringValue = "" }
+            guard admittedContext, !text.isEmpty, !self.manualEntry, !self.viewModel.hasPendingConfirmation else { return }
+            self.viewModel.submitVoice(text)
+            if self.isPanelVisible { self.hide() }
         }
         dictation.onListeningChange = { [weak self] isListening in
             self?.waveform.isListening = isListening
         }
-        dictation.onError = { error in
+        dictation.onStatus = { [weak self] status in
+            if status == "Listening" { self?.voiceRetryDelay = 2 }
+            self?.voiceStatus = status
+            self?.onVoiceStateChange?()
+        }
+        dictation.onError = { [weak self] error in
+            guard let self else { return }
             Log.shared.write("dictation unavailable: \(error)")
+            self.utteranceContext = nil
+            self.voiceStatus = error + " Retrying…"
+            self.onVoiceStateChange?()
+            self.voiceRetryTask?.cancel()
+            let delay = self.voiceRetryDelay
+            self.voiceRetryDelay = min(30, delay * 2)
+            self.voiceRetryTask = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                guard let self, self.listeningEnabled, !self.manualEntry else { return }
+                self.reconcileListening()
+            }
         }
     }
 
-    private func configurePanel(_ panel: LiveJevPanel) {
+    private var canActOnVoice: Bool {
+        if !TalkbackSettings.liveOnly { return true }
+        let front = NSWorkspace.shared.frontmostApplication
+        return front?.bundleIdentifier == "com.ableton.live" ||
+            (isPanelVisible && front?.processIdentifier == ProcessInfo.processInfo.processIdentifier)
+    }
+
+    func setListening(_ enabled: Bool) {
+        voiceRetryTask?.cancel()
+        UserDefaults.standard.set(enabled, forKey: "TalkbackListeningEnabled")
+        manualEntry = false
+        utteranceContext = nil
+        if !enabled { dictation.stop(); voiceStatus = "Off" }
+        reconcileListening()
+        onVoiceStateChange?()
+    }
+
+    func reconcileListening() {
+        if listeningEnabled && !manualEntry { dictation.start(language: viewModel.interfaceLanguage) }
+    }
+
+    func stopListening() { voiceRetryTask?.cancel(); dictation.stop() }
+
+    func restartSpeechLanguage() {
+        dictation.stop()
+        utteranceContext = nil
+        reconcileListening()
+    }
+
+    private func configurePanel(_ panel: TalkbackPanel) {
         panel.delegate = self
         panel.handleCancel = { [weak self] in self?.cancelOrHide() }
         panel.level = .floating
@@ -469,7 +546,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         }
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         var origin = NSPoint(x: screen.midX - 280, y: screen.maxY - screen.height * 0.22 - pillHeight)
-        if let saved = UserDefaults.standard.array(forKey: "LiveJevPillTopLeft") as? [Double],
+        if let saved = UserDefaults.standard.array(forKey: "TalkbackPillTopLeft") as? [Double],
            saved.count == 2, saved.allSatisfy({ $0.isFinite }) {
             let candidate = NSRect(x: saved[0], y: saved[1] - pillHeight, width: 560, height: pillHeight)
             if NSScreen.screens.contains(where: { $0.visibleFrame.contains(candidate) }) {
@@ -609,7 +686,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         waveform.toolTip = viewModel.statusLine
         let latest = viewModel.results.first
         let isNew = latest.map { !seenResults.contains($0.id) } ?? false
-        let matchesHiddenRequest = latest?.requestID.map { outstandingHiddenRequestIDs.contains($0) } == true
+        let matchesHiddenRequest = latest?.requestID.map { outstandingHiddenRequestIDs.contains($0) || $0.hasPrefix("voice-") } == true
         seenResults = Set(viewModel.results.map(\.id))
         if isNew, let requestID = latest?.requestID {
             outstandingHiddenRequestIDs.remove(requestID)
@@ -830,7 +907,7 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         let confidence = viewModel.interfaceLanguage == .ja
             ? "（\(actionConfidence)・\(trackConfidence)）"
             : " (\(actionConfidence), \(trackConfidence))"
-        var line = "Jev: \(action) / \(track) / \(step)\(confidence)"
+        var line = "Command: \(action) / \(track) / \(step)\(confidence)"
         if let rewritten = decision.rewritten, !rewritten.isEmpty {
             line += " \(viewModel.text(.paraphrase)): \(rewritten.joined(separator: " / "))"
         }

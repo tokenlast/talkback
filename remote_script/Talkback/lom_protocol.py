@@ -22,7 +22,7 @@ _INDEX = re.compile(r"0|[1-9][0-9]*")
 
 GET_MEMBERS = {
     "song": frozenset((
-        "tempo", "is_playing", "loop", "metronome", "session_record",
+        "tempo", "is_playing", "loop", "metronome", "session_record", "record_mode",
         "overdub", "current_song_time", "signature_numerator",
         "signature_denominator",
     )),
@@ -41,7 +41,7 @@ GET_MEMBERS = {
 
 SET_MEMBERS = {
     "song": frozenset((
-        "loop", "metronome", "session_record", "overdub",
+        "loop", "metronome", "session_record", "record_mode", "overdub",
         "current_song_time",
     )),
     "track": frozenset((

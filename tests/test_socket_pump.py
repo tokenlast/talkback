@@ -4,7 +4,7 @@ from collections import deque
 import socket
 import unittest
 
-from remote_script.LiveJev.socket_pump import SocketPump
+from remote_script.Talkback.socket_pump import SocketPump
 
 
 class FakeListener:

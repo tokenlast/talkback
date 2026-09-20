@@ -1,5 +1,5 @@
 #!/usr/bin/env python3.13
-"""Draw the 1024 px Live Jev app icon as a PNG using only the standard library."""
+"""Draw the 1024 px Talkback app icon as a PNG using only the standard library."""
 
 from __future__ import annotations
 

@@ -1,83 +1,99 @@
-# Installing Live Jev
+# Install Talkback
 
-Written for people and for AI coding assistants (Claude Code, Codex, Cursor and the like). Every step has a check.
+## Build from source
 
+You need Apple Silicon, macOS 26 or newer, Xcode 26 / Swift 6.2, Homebrew Python
+3.13, and Ableton Live 12. No TypeSafe account or API key is required for local use.
 
-## 0. Prerequisites
-| You need | Check | If missing |
-| --- | --- | --- |
-| Apple Silicon Mac (M1 or later), macOS 14 or later | `uname -m` prints `arm64`; `sw_vers -productVersion` is 14 or higher | Not supported (Intel Macs are not supported) |
-| Ableton Live 12 | Live starts | — |
-| Xcode Command Line Tools | `xcode-select -p` prints a path | `xcode-select --install` |
-| Homebrew Python 3.13 | `/opt/homebrew/bin/python3.13 --version` | `brew install python@3.13` (Homebrew: <https://brew.sh>) |
-| A TypeSafe API key | — | Sign in at <https://console.typesafe.ai/> and create one (docs: <https://docs.typesafe.ai/>). It is a paid API; check TypeSafe’s site for pricing |
-
-**Note for AI assistants:** ask the user to enter the API key themselves. Never write the key to a file you create, a log, or a commit. Ask the user to do step 3 (it happens in Live’s settings window).
-
-## 1. Get the code
-```bash
-git clone https://github.com/okinaaudio/live-jev.git ~/live-jev
-cd ~/live-jev
-```
-**Important:** the app runs `daemon.py` from this folder. **Do not move or delete the folder after building the app** (if you move it, repeat step 5). Decide where it should live before you continue.
-
-Check: `/opt/homebrew/bin/python3.13 -m unittest discover -s tests` ends with `OK`.
-
-## 2. Install the Remote Script
-```bash
-mkdir -p ~/Music/Ableton/User\ Library/Remote\ Scripts/LiveJev
-cp remote_script/LiveJev/*.py ~/Music/Ableton/User\ Library/Remote\ Scripts/LiveJev/
-```
-If you moved your User Library, put it in `Remote Scripts/LiveJev/` under the location shown in Live’s Settings → Library.
-
-## 3. Enable it in Live (done by the user)
-Start Live → Settings → **Link, Tempo & MIDI** → **Control Surface** → choose **LiveJev** in a free slot → **restart Live**. Leave Input and Output set to None.
-
-Check (with Live running):
-```bash
-/opt/homebrew/bin/python3.13 plugin_script.py ping     # → pong
+```sh
+git clone https://github.com/tokenlast/talkback.git
+cd talkback
+python3 -m unittest discover -q
+bash scripts/build-app.sh
+open "$HOME/Applications/Talkback.app"
 ```
 
-## 4. Set your API key
-```bash
-echo 'export TYPESAFE_API_KEY="YOUR_KEY"' >> ~/.zshrc
+The local build is ad-hoc signed, not a notarized public binary. The build script
+keeps the previous installed app as `~/dev/talkback-build/Talkback.app.bak` and
+moves older generated artifacts to Trash. The app bundles the daemon source;
+it does not need the source checkout to stay in place.
+
+## Connect Ableton
+
+1. Open Talkback's menu-bar menu → **Settings…**.
+2. Under Install the Live control script, select **Install**. If your User Library
+   is elsewhere, select that library first.
+3. In Live → Settings → Link, Tempo & MIDI, choose **Talkback** in a Control Surface
+   slot. Leave Input and Output as None.
+4. Restart Live. Settings should show the connection as ready.
+
+If upgrading from the original project, disable its old control-surface slot
+before enabling Talkback. Do not run two scripts on port 9140. Keep the old app or
+script as a backup, but quit the old app so it does not own the same shortcut.
+
+## Configure listening
+
+Allow Talkback's microphone request. The first start may download Apple's local
+speech model. No Accessibility permission is required for the command shortcut.
+
+Listening remains on until disabled. The menu bar's Listening checkbox reflects
+the preference; Settings shows whether the engine is actually listening or has
+encountered an error. Enable **Launch at login** and save preferences to restart it
+automatically at future logins.
+
+Defaults: English recognition, one-second pause, quiet threshold −48 dB,
+Arrangement recording, no opening phrase, foreground-only actions, ⌘⇧Space.
+Settings lets you change these behaviors. The language menu controls the interface;
+English is currently required for hands-free command admission.
+
+A required opening phrase such as “Talkback” reduces false activations. Any voice
+or recording can still say it. Start with a disposable set, especially around loud
+music or open speakers. Turn Listening off when you do not want voice control.
+
+## Custom commands
+
+Open Settings → Custom commands. Enter one `phrase => command` per line and select
+**Save preferences**. The “All supported commands” link opens the bundled reference.
+
+The format is validated on save. Actual action, target, plug-in, and clip validity
+is checked against the current set when the command runs. Mappings are not code
+and never use cloud fallback. External edits to the plain-text command file are
+picked up on the next command.
+
+## Optional cloud interpretation
+
+Leave this off for entirely local command handling. If you choose to enable it,
+enter your TypeSafe key yourself in Settings; it is stored in Keychain. Accepted
+commands and relevant Live names can then leave the Mac. Audio remains local.
+
+The command-line daemon is also local by default. An explicitly enabled cloud
+CLI uses `TALKBACK_LOCAL_ONLY=0`; do not put keys in source, examples, or commits.
+
+## Checks and troubleshooting
+
+```sh
+python3 plugin_script.py ping
+TALKBACK_LOCAL_ONLY=1 python3 cli.py status
 ```
-The key is read from the `TYPESAFE_API_KEY` environment variable, or from an `export TYPESAFE_API_KEY=...` line in `~/.zshenv`, `~/.zprofile`, `~/.zshrc`, `~/.bash_profile`, `~/.bashrc` or `~/.profile`.
 
-Check (with Live running; this does not change your set):
-```bash
-/opt/homebrew/bin/python3.13 cli.py status           # → one line such as "Live 12 tracks / 120 BPM"
-```
+- No connection: confirm Talkback is the enabled control surface, restart Live,
+  and check for another process using port 9140.
+- No speech: check Microphone permission and Settings' status. Toggle Listening
+  off/on after changing audio hardware or a speech error.
+- No automatic submission during music: adjust the quiet threshold or use
+  headphones/a closer mic; open the command bar and press Return.
+- No shortcut: try the menu's Show command bar, then choose another shortcut in Settings.
+- No plug-in: confirm it is installed and visible in Live's browser. Ambiguous
+  names need a more specific name.
+- No recording: check the recording destination and armed tracks. Talkback does
+  not silently arm tracks you did not request.
 
-## 5. Build the app
-```bash
-bash scripts/build-app.sh          # → ~/Applications/Live Jev.app
-open ~/Applications/Live\ Jev.app
-```
-A waveform icon appears in the menu bar. There is no Dock icon.
-
-On first launch a **Setup** window opens. It checks the three things above for you: the Remote Script (and can install or update it), the connection to Live, and the API key. You can paste the key there instead of step 4; it is stored in your macOS Keychain and handed to the background service when it starts. Reopen the window any time from the menu bar icon → **Setup…**.
-
-## 6. Use it
-Bring Live to the front and press **⌘⇧Space**. The bar opens and starts listening immediately. Say “mute”, then pause for one second or press Enter. The bar disappears at once and Live stays in front. Typing stops dictation for that command. Escape or pressing ⌘⇧Space again cancels. The first spoken command asks for Microphone and Speech Recognition access; both are required for on-device dictation. Live Jev only comes back when it needs to ask you something. To undo the last successful command, including a success with a hidden result row, summon the bar and press ⌘Z.
-
-Check from Terminal (mutes the selected track, then unmutes it):
-```bash
-/opt/homebrew/bin/python3.13 cli.py "mute" && /opt/homebrew/bin/python3.13 cli.py "unmute"
-```
-
-## Troubleshooting
-| Symptom | Where to look |
-| --- | --- |
-| `plugin_script.py ping` prints `no answer` | Did you choose LiveJev in step 3 and restart Live afterwards? Live’s log (`~/Library/Preferences/Ableton/Live 12.*/Log.txt`) should contain `LiveJev: started, listening on port 9140` |
-| “The Jev API key was not found.” | Is the line from step 4 in your shell profile? Quit and reopen the app after adding it |
-| `build-app.sh` says swift was not found | `xcode-select --install` |
-| `build-app.sh` says `/opt/homebrew/bin/python3.13` is missing | `brew install python@3.13` |
-| Nothing happens on ⌘⇧Space | Menu bar waveform icon → Show. Check that no other app uses the same shortcut |
-| The bar opens but does not listen | In System Settings → Privacy & Security, allow Live Jev under both Microphone and Speech Recognition |
-| The app keeps saying “Starting background service…” | The cloned folder was moved or deleted (see step 1). Put it back, or repeat step 5 |
-| “Python was not found” in `~/Library/Logs/LiveJev.log` | The app looks for Python in this order: `LIVE_JEV_PYTHON`, a Python bundled inside the app, `/opt/homebrew/bin/python3.13`, `/opt/homebrew/bin/python3`, `/usr/local/bin/python3`, `/usr/bin/python3` |
-| A plug-in name is not understood | Does the plug-in show up in Live’s browser? You can pin a nickname in `plugin_aliases.json`, for example `{"valhalla": "ValhallaVintageVerb"}` |
+Logs: `~/Library/Logs/Talkback.log`. Preferences use `es.charlieyat.talkback`.
+Custom commands: `~/Library/Application Support/Talkback/commands.txt`.
 
 ## Uninstall
-Delete `~/Applications/Live Jev.app`, `~/Music/Ableton/User Library/Remote Scripts/LiveJev/` and the cloned folder, remove the `TYPESAFE_API_KEY` line from your shell profile, and set the Control Surface slot in Live back to None.
+
+Disable Launch at login, switch Listening off, and quit Talkback. Set its Live
+Control Surface slot to None, then move Talkback.app and
+`User Library/Remote Scripts/Talkback` to Trash. Keep your command file if you
+want to reinstall later. An optional saved cloud key can be removed in Settings.

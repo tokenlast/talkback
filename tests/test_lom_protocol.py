@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from remote_script.LiveJev.lom_protocol import (
+from remote_script.Talkback.lom_protocol import (
     LomPathError,
     allow_call,
     allow_get,

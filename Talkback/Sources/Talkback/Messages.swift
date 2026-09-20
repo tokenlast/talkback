@@ -30,11 +30,11 @@ enum AppText {
     static func text(_ key: Key, language: InterfaceLanguage) -> String {
         let pair: (ja: String, en: String)
         switch key {
-        case .setup: pair = ("セットアップ…", "Setup…")
-        case .setupTitle: pair = ("Live Jevのセットアップ", "Set up Live Jev")
+        case .setup: pair = ("設定…", "Settings…")
+        case .setupTitle: pair = ("Talkbackのセットアップ", "Set up Talkback")
         case .installScript: pair = ("Live操作スクリプトをインストール", "Install the Live control script")
-        case .selectLive: pair = ("LiveでLiveJevを選択", "Select LiveJev in Live")
-        case .selectLiveHelp: pair = ("Live → 設定 → Link, Tempo & MIDI → コントロールサーフェス → LiveJev。インストール後にLiveを一度再起動してください。", "Live → Settings → Link, Tempo & MIDI → Control Surface → LiveJev. Restart Live once after installing.")
+        case .selectLive: pair = ("LiveでTalkbackを選択", "Select Talkback in Live")
+        case .selectLiveHelp: pair = ("Live → 設定 → Link, Tempo & MIDI → コントロールサーフェス → Talkback。インストール後にLiveを一度再起動してください。", "Live → Settings → Link, Tempo & MIDI → Control Surface → Talkback. Restart Live once after installing.")
         case .addKey: pair = ("TypeSafe APIキーを追加", "Add your TypeSafe API key")
         case .keyHelp: pair = ("キーはmacOSのキーチェーンに保存します。", "Your key is stored in the macOS Keychain.")
         case .shellKey: pair = ("シェル設定のキーを使用中", "Using the key from your shell profile")
@@ -58,7 +58,7 @@ enum AppText {
         case .pending: pair = ("未確認", "Pending")
         case .ready: pair = ("確認済み", "Ready")
         case .problem: pair = ("要確認", "Needs attention")
-        case .show: pair = ("呼び出す（⌘⇧Space）", "Show (⌘⇧Space)")
+        case .show: pair = ("呼び出す", "Show command bar")
         case .launchAtLogin: pair = ("ログイン時に起動", "Launch at Login")
         case .version: pair = ("バージョン", "Version")
         case .quit: pair = ("終了", "Quit")
@@ -84,7 +84,7 @@ enum AppText {
         case .daemonLaunchFailed: pair = ("常駐を起動できません", "Could not start the background service")
         case .daemonStopped: pair = ("常駐が終了しました", "Background service stopped")
         case .inputLabel: pair = ("Liveへの指示", "Command for Live")
-        case .inputHelp: pair = ("話して1秒待つか、Enterで送信。Escapeで閉じます。", "Speak and pause for one second, or press Return to send. Press Escape to close.")
+        case .inputHelp: pair = ("話して設定した時間待つか、Enterで送信。Escapeで閉じます。", "Speak and pause, or press Return to send. Pause length is configurable in Settings. Escape cancels.")
         case .undoTooltip: pair = ("元に戻す（⌘Z）", "Undo (⌘Z)")
         case .latestResult: pair = ("最新の結果", "Latest result")
         case .yes: pair = ("はい", "Yes")
@@ -97,6 +97,7 @@ enum AppText {
 
 enum DaemonRequest: Encodable {
     case text(id: String, text: String, answering: String?)
+    case voice(id: String, text: String)
     case refresh(id: String)
     case status(id: String)
     case cancelPending(id: String, target: String? = nil)
@@ -106,12 +107,16 @@ enum DaemonRequest: Encodable {
     case quit
 
     private enum CodingKeys: String, CodingKey {
-        case id, text, cmd, confirm, value, target, answering
+        case id, text, cmd, confirm, value, target, answering, source
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case let .voice(id, text):
+            try container.encode(id, forKey: .id)
+            try container.encode(text, forKey: .text)
+            try container.encode("voice", forKey: .source)
         case let .text(id, text, answering):
             try container.encode(id, forKey: .id)
             try container.encode(text, forKey: .text)

@@ -3,34 +3,34 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>ja</string>
+	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>LiveJev</string>
+	<string>Talkback</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.okinaaudio.livejev</string>
+	<string>es.charlieyat.talkback</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Live Jev</string>
+	<string>Talkback</string>
 	<key>CFBundleDisplayName</key>
-	<string>Live Jev</string>
+	<string>Talkback</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.01</string>
+	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>12</string>
+	<string>1</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>26.0</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 Okina Audio. MIT License.</string>
+	<string>Talkback © 2026 Charlie Yates. Includes code © 2026 Okina Audio. MIT License.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Live Jev listens while its command bar is open so you can control Ableton Live by voice.</string>
+	<string>Talkback listens on this Mac until you switch listening off, and acts on spoken commands while Ableton Live is active.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Live Jev turns your spoken Ableton Live commands into text on this Mac.</string>
+	<string>Talkback transcribes speech locally on this Mac.</string>
 </dict>
 </plist>

@@ -304,6 +304,15 @@ def _song_bool(prop: str, value: bool, label: str, confirm: bool = False) -> Act
                       kind="song_bool", prop=prop, confirm=confirm, readback_event=("api_get", prop))
 
 
+def _apply_arrangement_record(snapshot: Snapshot, intent: Intent) -> list[list[str]]:
+    batches = _apply_song_bool("record_mode", True)(snapshot, intent)
+    # Arm the Arrangement recorder before transport starts. Do not restart an
+    # already-running transport, which would move the user's playhead.
+    if not snapshot.playing:
+        batches.insert(1, ["--write", "--api-call", "live_set", "continue_playing", "[]", request_id("record-start")])
+    return batches
+
+
 def _song_call(method: str, text: str) -> ActionSpec:
     return ActionSpec(False, False, False, _apply_song_call(method), _read_text(text),
                       kind="song_call", prop=method, readback_event=("api_get", "is_playing"))
@@ -579,8 +588,10 @@ ACTIONS: dict[Action, ActionSpec] = {
     Action.PLAY: _transport("start_playing"),
     Action.STOP: _transport("stop_playing"),
     Action.CONTINUE: _transport("continue_playing"),
-    Action.RECORD_ON: _song_bool("session_record", True, "label.record", confirm=True),
-    Action.RECORD_OFF: _song_bool("session_record", False, "label.record"),
+    Action.RECORD_ON: ActionSpec(False, False, False, _apply_arrangement_record, _read_song_bool("label.arrangement_record", "record_mode"), kind="song_bool", prop="record_mode", confirm=True, readback_event=("api_get", "record_mode")),
+    Action.RECORD_OFF: _song_bool("record_mode", False, "label.arrangement_record"),
+    Action.SESSION_RECORD_ON: _song_bool("session_record", True, "label.record", confirm=True),
+    Action.SESSION_RECORD_OFF: _song_bool("session_record", False, "label.record"),
     Action.OVERDUB_ON: _song_bool("overdub", True, "label.overdub"),
     Action.OVERDUB_OFF: _song_bool("overdub", False, "label.overdub"),
     Action.LOOP_ON: _song_bool("loop", True, "label.loop"),

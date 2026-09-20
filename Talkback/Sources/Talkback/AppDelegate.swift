@@ -9,13 +9,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var onboarding: Onboarding?
     private var loginItem: NSMenuItem?
+    private var listeningItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: ["language": AppLanguage.auto.rawValue])
+        UserDefaults.standard.register(defaults: ["language": AppLanguage.auto.rawValue, "TalkbackListeningEnabled": true, "TalkbackAllowJev": false])
         let panelController = PanelController(viewModel: viewModel)
         self.panelController = panelController
         NSApp.mainMenu = makeMainMenu()
         configureMenuBar()
+        panelController.onVoiceStateChange = { [weak self] in self?.updateVoiceState() }
 
         let hotKey = HotKey { [weak panelController] in
             panelController?.toggle()
@@ -28,7 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         viewModel.start()
-        if !UserDefaults.standard.bool(forKey: "LiveJevSetupDone") { showSetup() }
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged), name: TalkbackSettings.changed, object: nil)
+        panelController.reconcileListening()
+        if !UserDefaults.standard.bool(forKey: "TalkbackSetupDone") { showSetup() }
         // Do not show the on-demand UI at launch, which would display the pill after every login. Open it with Cmd-Shift-Space or the menu.
     }
 
@@ -38,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        panelController?.stopListening()
         viewModel.stop()
     }
 
@@ -45,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(
             systemSymbolName: "waveform",
-            accessibilityDescription: "Live Jev"
+            accessibilityDescription: "Talkback"
         )
         item.menu = makeStatusMenu()
         statusItem = item
@@ -53,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func makeStatusMenu() -> NSMenu {
         let menu = NSMenu()
+        listeningItem = menu.addItem(withTitle: "Listening", action: #selector(toggleListening), keyEquivalent: "")
+        listeningItem?.state = panelController?.listeningEnabled == true ? .on : .off
         menu.addItem(withTitle: viewModel.text(.show), action: #selector(showPanel), keyEquivalent: "")
         menu.addItem(withTitle: viewModel.text(.setup), action: #selector(showSetup), keyEquivalent: "")
         let loginItem = menu.addItem(
@@ -93,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Live Jev \(viewModel.text(.quit))", action: #selector(quit), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Talkback \(viewModel.text(.quit))", action: #selector(quit), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
         let editItem = NSMenuItem()
@@ -112,8 +119,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showSetup() {
-        if onboarding == nil { onboarding = Onboarding(viewModel: viewModel) }
+        if onboarding == nil, let panelController { onboarding = Onboarding(viewModel: viewModel, voice: panelController) }
         onboarding?.show()
+    }
+
+    @objc private func toggleListening() {
+        guard let panelController else { return }
+        panelController.setListening(!panelController.listeningEnabled)
+    }
+
+    @objc private func settingsChanged() {
+        viewModel.restartDaemon()
+        panelController?.restartSpeechLanguage()
+        hotKey = nil
+        let replacement = HotKey { [weak self] in self?.panelController?.toggle() }
+        do { try replacement.register(); hotKey = replacement }
+        catch { Log.shared.write("Shortcut unavailable: \(error.localizedDescription)") }
+        updateLoginItemState()
+    }
+
+    private func updateVoiceState() {
+        guard let panelController else { return }
+        listeningItem?.state = panelController.listeningEnabled ? .on : .off
+        statusItem?.button?.toolTip = "Talkback — \(panelController.voiceStatus)"
+        statusItem?.button?.image = NSImage(systemSymbolName: panelController.listeningEnabled ? "mic" : "mic.slash", accessibilityDescription: "Talkback — \(panelController.voiceStatus)")
+        onboarding?.refreshVoice()
     }
 
     @objc private func showPanel() {
@@ -139,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = makeMainMenu()
         statusItem?.menu = makeStatusMenu()
         panelController?.updateLocalizedText()
+        panelController?.restartSpeechLanguage()
         onboarding?.updateLocalizedText()
     }
 

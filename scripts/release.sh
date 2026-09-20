@@ -3,10 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-WORK_DIR="$HOME/dev/live-jev-build/release"
+WORK_DIR="$HOME/dev/talkback-build/release"
 BUILD_DIR="$WORK_DIR/swift-build"
-SOURCE_COPY="$WORK_DIR/LiveJev-release-source"
-APP_NAME="Live Jev.app"
+SOURCE_COPY="$WORK_DIR/Talkback-release-source"
+APP_NAME="Talkback.app"
 APP_DIR="$WORK_DIR/$APP_NAME"
 DEFAULT_OUT="$WORK_DIR/out"
 OUT_DIR="$DEFAULT_OUT"
@@ -17,10 +17,11 @@ NOTARIZE_TOOL="${NOTARIZE_TOOL:-}"
 MOUNT_DIR="$WORK_DIR/dmg-mount"
 MOUNTED=0
 
-DAEMON_FILES=(daemon.py intent.py intent_en.py actions.py messages.py snapshot.py bridge_client.py script_bridge_client.py plugin_script.py llm_rewrite.py cli.py)
+DAEMON_FILES=(daemon.py intent.py intent_en.py voice_gate.py user_commands.py actions.py messages.py snapshot.py bridge_client.py script_bridge_client.py plugin_script.py llm_rewrite.py cli.py)
 
 say() { printf '%s\n' "$*"; }
 fail() { printf '[FAILED] %s\n' "$*" >&2; exit 1; }
+trash_existing() { for target in "$@"; do [[ ! -e "$target" ]] || /usr/bin/trash "$target"; done; }
 usage() {
   printf '%s\n' 'Usage: scripts/release.sh [--version 1.00] [--skip-notarize] [--identity "Developer ID Application: …"] [--out DIR]'
 }
@@ -69,7 +70,7 @@ done
 [[ "$(uname -m)" == "arm64" ]] || fail "The release must be built on Apple Silicon"
 
 if [[ -z "$VERSION" ]]; then
-  VERSION="$(plutil -extract CFBundleShortVersionString raw "$PROJECT_DIR/LiveJev/Info.plist")"
+  VERSION="$(plutil -extract CFBundleShortVersionString raw "$PROJECT_DIR/Talkback/Info.plist")"
 fi
 [[ -n "$VERSION" ]] || fail "The release version is empty"
 
@@ -124,14 +125,14 @@ if process.returncode != 0:
 }
 
 say "1/9 Building the release app"
-rm -rf "$BUILD_DIR" "$SOURCE_COPY" "$APP_DIR"
+trash_existing "$BUILD_DIR" "$SOURCE_COPY" "$APP_DIR"
 mkdir -p "$WORK_DIR" "$SOURCE_COPY"
-cp -R "$PROJECT_DIR/LiveJev/." "$SOURCE_COPY/"
+cp -R "$PROJECT_DIR/Talkback/." "$SOURCE_COPY/"
 
 # build-app.sh compiles DaemonClient.swift from the checkout. Its #filePath-based
 # default therefore embeds the checkout path. Patch only the release source copy
 # so the final fallback is the bundled daemon and development builds stay unchanged.
-DAEMON_CLIENT="$SOURCE_COPY/Sources/LiveJev/DaemonClient.swift"
+DAEMON_CLIENT="$SOURCE_COPY/Sources/Talkback/DaemonClient.swift"
 [[ -f "$DAEMON_CLIENT" ]] || fail "DaemonClient.swift was not found in the release source copy"
 perl -0pi -e 's/private static let defaultDaemonPath: String = \{.*?^    \}\(\)/private static let defaultDaemonPath = ""/ms' "$DAEMON_CLIENT"
 grep -F 'private static let defaultDaemonPath = ""' "$DAEMON_CLIENT" >/dev/null || fail "Could not clear the release build's development daemon path"
@@ -141,12 +142,12 @@ grep -F 'private static let defaultDaemonPath = ""' "$DAEMON_CLIENT" >/dev/null 
   -Xswiftc -file-prefix-map -Xswiftc "$SOURCE_COPY=." \
   -Xswiftc -debug-prefix-map -Xswiftc "$WORK_DIR=." \
   -Xswiftc -gnone >/dev/null) || fail "swift build failed"
-BIN="$BUILD_DIR/release/LiveJev"
+BIN="$BUILD_DIR/release/Talkback"
 [[ -x "$BIN" ]] || fail "Executable not found: $BIN"
 
 say "2/9 Creating the icon and app bundle"
 ICONSET="$WORK_DIR/AppIcon.iconset"
-rm -rf "$ICONSET"
+trash_existing "$ICONSET"
 mkdir -p "$ICONSET"
 ICON_PYTHON=""
 for candidate in /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
@@ -162,9 +163,10 @@ done
 iconutil -c icns "$ICONSET" -o "$WORK_DIR/AppIcon.icns" || fail "iconutil failed"
 
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
-cp "$BIN" "$APP_DIR/Contents/MacOS/LiveJev"
-strip -S -x "$APP_DIR/Contents/MacOS/LiveJev"
-cp "$PROJECT_DIR/LiveJev/Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "$BIN" "$APP_DIR/Contents/MacOS/Talkback"
+strip -S -x "$APP_DIR/Contents/MacOS/Talkback"
+cp "$PROJECT_DIR/Talkback/Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "$PROJECT_DIR/LICENSE" "$PROJECT_DIR/COMMANDS.md" "$APP_DIR/Contents/Resources/"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP_DIR/Contents/Info.plist"
 cp "$WORK_DIR/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
@@ -174,17 +176,17 @@ say "3/9 Bundling and pruning Python"
 PYTHON_ARCHIVE="$(bash "$SCRIPT_DIR/fetch_python.sh" | tail -n 1)"
 [[ -f "$PYTHON_ARCHIVE" ]] || fail "fetch_python.sh did not return a Python archive"
 PYTHON_STAGE="$WORK_DIR/python-stage"
-rm -rf "$PYTHON_STAGE"
+trash_existing "$PYTHON_STAGE"
 mkdir -p "$PYTHON_STAGE"
 tar -xzf "$PYTHON_ARCHIVE" -C "$PYTHON_STAGE"
 [[ -x "$PYTHON_STAGE/python/bin/python3" ]] || fail "The Python archive has an unexpected layout"
 mv "$PYTHON_STAGE/python" "$APP_DIR/Contents/Resources/python"
 
 PYTHON_ROOT="$APP_DIR/Contents/Resources/python"
-find "$PYTHON_ROOT" -type d \( -name test -o -name tests -o -name idlelib -o -name tkinter -o -name lib2to3 -o -name ensurepip -o -name turtledemo -o -name __pycache__ \) -prune -exec rm -rf {} +
-rm -rf "$PYTHON_ROOT/include" "$PYTHON_ROOT/share"
-find "$PYTHON_ROOT" -type f -name '*.a' -delete
-find "$PYTHON_ROOT" -type d \( -name pip -o -name 'pip-*.dist-info' -o -name setuptools -o -name 'setuptools-*.dist-info' \) -prune -exec rm -rf {} +
+find "$PYTHON_ROOT" -type d \( -name test -o -name tests -o -name idlelib -o -name tkinter -o -name lib2to3 -o -name ensurepip -o -name turtledemo -o -name __pycache__ \) -prune -exec /usr/bin/trash {} +
+trash_existing "$PYTHON_ROOT/include" "$PYTHON_ROOT/share"
+find "$PYTHON_ROOT" -type f -name '*.a' -exec /usr/bin/trash {} +
+find "$PYTHON_ROOT" -type d \( -name pip -o -name 'pip-*.dist-info' -o -name setuptools -o -name 'setuptools-*.dist-info' \) -prune -exec /usr/bin/trash {} +
 
 say "4/9 Copying daemon and Remote Script files"
 DAEMON_DIR="$APP_DIR/Contents/Resources/daemon"
@@ -193,11 +195,11 @@ for daemon_file in "${DAEMON_FILES[@]}"; do
   [[ -f "$PROJECT_DIR/$daemon_file" ]] || fail "Required daemon file is missing: $daemon_file"
   cp "$PROJECT_DIR/$daemon_file" "$DAEMON_DIR/$daemon_file"
 done
-REMOTE_DEST="$APP_DIR/Contents/Resources/remote_script/LiveJev"
+REMOTE_DEST="$APP_DIR/Contents/Resources/remote_script/Talkback"
 mkdir -p "$REMOTE_DEST"
-cp -R "$PROJECT_DIR/remote_script/LiveJev/." "$REMOTE_DEST/"
-find "$REMOTE_DEST" -type d -name __pycache__ -prune -exec rm -rf {} +
-find "$REMOTE_DEST" -type f -name '*.pyc' -delete
+cp -R "$PROJECT_DIR/remote_script/Talkback/." "$REMOTE_DEST/"
+find "$REMOTE_DEST" -type d -name __pycache__ -prune -exec /usr/bin/trash {} +
+find "$REMOTE_DEST" -type f -name '*.pyc' -exec /usr/bin/trash {} +
 
 say "5/9 Smoke-testing the unsigned bundle"
 smoke_test
@@ -217,7 +219,7 @@ find "$PYTHON_ROOT" -type f -print | while IFS= read -r python_file; do
     codesign --sign "$IDENTITY" --options runtime --timestamp --force "$python_file"
   fi
 done
-codesign --sign "$IDENTITY" --options runtime --timestamp --force "$APP_DIR/Contents/MacOS/LiveJev"
+codesign --sign "$IDENTITY" --options runtime --timestamp --force "$APP_DIR/Contents/MacOS/Talkback"
 codesign --sign "$IDENTITY" --options runtime --timestamp --force "$APP_DIR"
 codesign --verify --deep --strict "$APP_DIR" || fail "App signature verification failed"
 
@@ -232,9 +234,9 @@ grep -r -a -n -F "$PROJECT_DIR" "$APP_DIR/Contents" >> "$PRIVACY_HITS" 2>/dev/nu
 if [[ -n "${USER:-}" ]]; then
   grep -r -a -n -F "$USER" "$APP_DIR/Contents" >> "$PRIVACY_HITS" 2>/dev/null || true
 fi
-strings "$APP_DIR/Contents/MacOS/LiveJev" | grep -n -F -e "$HOME/" -e "$(basename "$(dirname "$PROJECT_DIR")")/$(basename "$PROJECT_DIR")" >> "$PRIVACY_HITS" || true
+strings "$APP_DIR/Contents/MacOS/Talkback" | grep -n -F -e "$HOME/" -e "$(basename "$(dirname "$PROJECT_DIR")")/$(basename "$PROJECT_DIR")" >> "$PRIVACY_HITS" || true
 if [[ -n "${USER:-}" ]]; then
-  strings "$APP_DIR/Contents/MacOS/LiveJev" | grep -n -F "$USER" >> "$PRIVACY_HITS" || true
+  strings "$APP_DIR/Contents/MacOS/Talkback" | grep -n -F "$USER" >> "$PRIVACY_HITS" || true
 fi
 if [[ -s "$PRIVACY_HITS" ]]; then
   sed -n '1,100p' "$PRIVACY_HITS" >&2
@@ -243,13 +245,13 @@ fi
 
 say "9/9 Packaging and checking the disk image"
 mkdir -p "$OUT_DIR"
-DMG_PATH="$OUT_DIR/LiveJev-$VERSION.dmg"
+DMG_PATH="$OUT_DIR/Talkback-$VERSION.dmg"
 DMG_STAGE="$WORK_DIR/dmg-stage"
-rm -rf "$DMG_STAGE" "$DMG_PATH"
+trash_existing "$DMG_STAGE" "$DMG_PATH"
 mkdir -p "$DMG_STAGE"
 cp -R "$APP_DIR" "$DMG_STAGE/$APP_NAME"
 ln -s /Applications "$DMG_STAGE/Applications"
-hdiutil create -format UDZO -volname "Live Jev" -srcfolder "$DMG_STAGE" "$DMG_PATH" >/dev/null
+hdiutil create -format UDZO -volname "Talkback" -srcfolder "$DMG_STAGE" "$DMG_PATH" >/dev/null
 codesign --sign "$IDENTITY" --timestamp --force "$DMG_PATH"
 
 NOTARIZATION_STATUS="Skipped"
@@ -272,7 +274,7 @@ if [[ "$SKIP_NOTARIZE" -eq 1 ]]; then
   say "Skipping the Gatekeeper assessment because notarization was skipped. This image must NOT be distributed."
 else
 spctl -a -t open --context context:primary-signature -v "$DMG_PATH" || fail "Gatekeeper rejected the disk image"
-rm -rf "$MOUNT_DIR"
+trash_existing "$MOUNT_DIR"
 mkdir -p "$MOUNT_DIR"
 hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT_DIR" "$DMG_PATH" >/dev/null
 MOUNTED=1

@@ -5,13 +5,14 @@ set -euo pipefail
 PINNED_TAG="20260901"
 PINNED_FILE="cpython-3.12.14+20260901-aarch64-apple-darwin-install_only_stripped.tar.gz"
 
-CACHE_DIR="$HOME/dev/live-jev-build/python-cache"
+CACHE_DIR="$HOME/dev/talkback-build/python-cache"
 BASE_URL="https://github.com/astral-sh/python-build-standalone/releases/download/$PINNED_TAG"
 TARBALL="$CACHE_DIR/$PINNED_FILE"
 SUMS_FILE="$CACHE_DIR/SHA256SUMS-$PINNED_TAG"
 
 say() { printf '%s\n' "$*" >&2; }
 fail() { printf '[FAILED] %s\n' "$*" >&2; exit 1; }
+trash_existing() { for target in "$@"; do [[ ! -e "$target" ]] || /usr/bin/trash "$target"; done; }
 
 command -v curl >/dev/null 2>&1 || fail "curl was not found"
 command -v shasum >/dev/null 2>&1 || fail "shasum was not found"
@@ -22,7 +23,7 @@ say "Downloading the published checksum list for $PINNED_TAG"
 curl --fail --location --silent --show-error \
   "$BASE_URL/SHA256SUMS" \
   --output "$SUMS_FILE.tmp" || {
-    rm -f "$SUMS_FILE.tmp"
+    trash_existing "$SUMS_FILE.tmp"
     fail "The published SHA256SUMS file could not be downloaded"
   }
 mv "$SUMS_FILE.tmp" "$SUMS_FILE"
@@ -40,20 +41,20 @@ if [[ -f "$TARBALL" ]]; then
     exit 0
   fi
   say "The cached archive failed verification; downloading it again"
-  rm -f "$TARBALL"
+  trash_existing "$TARBALL"
 fi
 
 say "Downloading $PINNED_FILE"
 curl --fail --location --silent --show-error \
   "$BASE_URL/$PINNED_FILE" \
   --output "$TARBALL.tmp" || {
-    rm -f "$TARBALL.tmp"
+    trash_existing "$TARBALL.tmp"
     fail "The Python archive could not be downloaded"
   }
 
 ACTUAL_SHA256="$(shasum -a 256 "$TARBALL.tmp" | awk '{ print $1 }')"
 if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
-  rm -f "$TARBALL.tmp"
+  trash_existing "$TARBALL.tmp"
   fail "The Python archive SHA-256 does not match the published checksum"
 fi
 mv "$TARBALL.tmp" "$TARBALL"

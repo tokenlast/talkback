@@ -1,8 +1,9 @@
-"""English fixed-phrase parsing for Live Jev."""
+"""English fixed-phrase parsing for Talkback."""
 
 from __future__ import annotations
 
 import re
+import os
 from dataclasses import replace
 from typing import Literal
 
@@ -51,7 +52,7 @@ ENGLISH_PHRASES: dict[str, tuple[str, ...]] = {
     ),
     "insert_preposition": ("on", "onto", "in", "into", "to"),
     "new_track": ("new", "another", "a fresh", "fresh"),
-    "selected_track": ("selected track", "the selected track", "this track", "the track", "current track", "the track i'm on", "it", "this", "that", "selected"),
+    "selected_track": ("selected track", "the selected track", "this track", "the track", "current track", "the track i'm on", "that one", "this one", "it", "this", "that", "selected"),
     "up": ("up", "raise", "increase", "boost", "louder", "turn up"),
     "down": ("down", "lower", "decrease", "reduce", "quieter", "turn down", "pull down"),
     "small": ("a bit", "a little", "slightly", "a touch", "a hair"),
@@ -214,11 +215,15 @@ def extract_plugin_request_en(utterance: str, snapshot: Snapshot) -> PluginReque
     if is_negated_en(utterance):
         return None
     text = normalize_english_phrase(utterance)
+    group_name = None
+    grouped = re.fullmatch(r"(.+\b(?:new|another|fresh)\s+(?:(?:midi|audio|instrument)\s+)?track)\s+(?:in|inside)\s+(?:the\s+)?(?:group\s+)?(.+)", text)
+    if grouped:
+        text, group_name = grouped.groups()
     new_request = _new_track_request(text, snapshot)
     if new_request is not None:
         raw, kind, track_name = new_request
         if resolve_native_device(raw) is None:
-            return PluginRequest(Action.ADD_TRACK_WITH_PLUGIN, raw, None, track_name or kind)
+            return PluginRequest(Action.ADD_TRACK_WITH_PLUGIN, raw, None, track_name or kind, group_name=group_name)
         return None
 
     insert = _alternation("insert")
@@ -272,8 +277,10 @@ def _parse_local_en(utterance: str, snapshot: Snapshot) -> Intent | None:
         (r"(?:play|start|start playback)", Action.PLAY),
         (r"(?:continue|resume|continue playback|resume playback)", Action.CONTINUE),
         (r"(?:stop|stop playback)", Action.STOP),
-        (r"(?:record|start recording|record on)", Action.RECORD_ON),
-        (r"(?:stop recording|record off)", Action.RECORD_OFF),
+        (r"(?:record|start (?:arrangement )?recording|record on)", Action.RECORD_ON),
+        (r"(?:stop (?:arrangement )?recording|record off)", Action.RECORD_OFF),
+        (r"(?:start )?session recording", Action.SESSION_RECORD_ON),
+        (r"stop session recording", Action.SESSION_RECORD_OFF),
         (r"(?:overdub|overdub on|turn overdub on)", Action.OVERDUB_ON),
         (r"(?:overdub off|turn overdub off|disable overdub)", Action.OVERDUB_OFF),
         (r"(?:loop|loop on|turn loop on)", Action.LOOP_ON),
@@ -287,6 +294,8 @@ def _parse_local_en(utterance: str, snapshot: Snapshot) -> Intent | None:
     )
     for pattern, action in exact:
         if re.fullmatch(pattern, text, re.IGNORECASE):
+            if "arrangement" not in text and os.environ.get("TALKBACK_RECORDING_MODE", "arrangement") == "session":
+                action = {Action.RECORD_ON: Action.SESSION_RECORD_ON, Action.RECORD_OFF: Action.SESSION_RECORD_OFF}.get(action, action)
             return _local_intent(action)
 
     multi_patterns = (
@@ -508,8 +517,15 @@ _TRACK_DEFAULT_ACTIONS = {
 
 
 def _has_unresolved_target_words(text: str, intent: Intent, snapshot: Snapshot) -> bool:
+    # Remove the resolved name before stripping grammar. Names may themselves
+    # contain words such as "Selected", "Send" or "Volume", or numeric units.
+    residual = text
+    if isinstance(intent.track, int):
+        target = next((track for track in snapshot.tracks if track.index == intent.track), None)
+        if target is not None and target.name:
+            residual = re.sub(rf"(?<!\w){re.escape(target.name)}(?!\w)", " ", residual, count=1, flags=re.IGNORECASE)
     # Identifiers go first: once "send" is removed as a word, the "b" of "send B" would read as a leftover name.
-    residual = re.sub(r"(?:[-+]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:%|percent|db|decibels?|bpm|st|semitones?)|\b(?:to|by|at|of)\s+\d+(?:\.\d+)?)", " ", text, flags=re.IGNORECASE)
+    residual = re.sub(r"(?:[-+]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:%|percent|db|decibels?|bpm|st|semitones?)|\b(?:to|by|at|of)\s+\d+(?:\.\d+)?)", " ", residual, flags=re.IGNORECASE)
     residual = re.sub(r"\bsend\s+(?:[a-z]|\d+)\b", " ", residual, flags=re.IGNORECASE)
     # A bare number next to a pan side is an amount ("pan left 20", "20 to the left"), not a track called "20".
     residual = re.sub(r"\b(?:left|right)\s+\d+(?:\.\d+)?|\d+(?:\.\d+)?\s+(?:to\s+the\s+)?(?:left|right)\b", " ", residual, flags=re.IGNORECASE)

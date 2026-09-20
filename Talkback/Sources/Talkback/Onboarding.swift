@@ -1,10 +1,19 @@
 import AppKit
 import Darwin
 
+private final class SettingsDocumentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 @MainActor
 final class Onboarding: NSObject, NSWindowDelegate {
     private enum State { case pending, ok, problem }
     private let viewModel: ViewModel
+    private let voice: PanelController
+    private let preferences = SettingsEditor()
+    private let listeningButton = NSButton(checkboxWithTitle: "Listening", target: nil, action: nil)
+    private let cloudButton = NSButton(checkboxWithTitle: "Use cloud interpretation for unfamiliar commands", target: nil, action: nil)
+    private let voiceLabel = NSTextField(wrappingLabelWithString: "")
     private let window: NSWindow
     private var timer: Timer?
     private var states: [State] = [.pending, .pending, .pending, .pending]
@@ -25,10 +34,11 @@ final class Onboarding: NSObject, NSWindowDelegate {
     private var checking = false
     private var tryLine: String?
 
-    init(viewModel: ViewModel) {
+    init(viewModel: ViewModel, voice: PanelController) {
         self.viewModel = viewModel
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 650),
-                          styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        self.voice = voice
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 780),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
         window.delegate = self
         window.isReleasedWhenClosed = false
@@ -48,6 +58,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
     private func text(_ key: AppText.Key) -> String { viewModel.text(key) }
 
     func show() {
+        preferences.reload()
         readKey()
         liveStatus = nil
         connectionProblem = nil
@@ -89,14 +100,20 @@ final class Onboarding: NSObject, NSWindowDelegate {
     }
 
     private func build() {
-        let material = NSVisualEffectView()
-        material.material = .windowBackground
-        material.blendingMode = .behindWindow
-        window.contentView = material
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = .white
+        let material = SettingsDocumentView()
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.documentView = material
+        window.contentView = scroll
+        material.translatesAutoresizingMaskIntoConstraints = false
+        material.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 24
+        stack.spacing = 22
         stack.translatesAutoresizingMaskIntoConstraints = false
         material.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -105,6 +122,23 @@ final class Onboarding: NSObject, NSWindowDelegate {
             stack.topAnchor.constraint(equalTo: material.topAnchor, constant: 28),
             stack.bottomAnchor.constraint(equalTo: material.bottomAnchor, constant: -24)
         ])
+        let heading = NSTextField(labelWithString: "Talkback")
+        heading.font = NSFont(name: "Helvetica", size: 28)
+        stack.addArrangedSubview(heading)
+        listeningButton.target = self
+        listeningButton.action = #selector(toggleListening)
+        listeningButton.font = NSFont(name: "Helvetica", size: 14)
+        voiceLabel.font = NSFont(name: "Helvetica", size: 12)
+        let voiceHelp = NSTextField(wrappingLabelWithString: "Speech stays on this Mac. Pause to send, or open the command bar and press Return. English voice commands.")
+        voiceHelp.font = NSFont(name: "Helvetica", size: 12)
+        let voiceStack = NSStackView(views: [listeningButton, voiceLabel, voiceHelp])
+        voiceStack.orientation = .vertical
+        voiceStack.alignment = .leading
+        voiceStack.spacing = 8
+        stack.addArrangedSubview(voiceStack)
+        voiceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        stack.addArrangedSubview(preferences)
+        preferences.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         for index in 0..<4 {
             let glyph = NSImageView()
             glyph.setAccessibilityElement(true)
@@ -112,11 +146,11 @@ final class Onboarding: NSObject, NSWindowDelegate {
             glyph.heightAnchor.constraint(equalToConstant: 20).isActive = true
             glyphs.append(glyph)
             let title = NSTextField(labelWithString: "")
-            title.font = .systemFont(ofSize: 14, weight: .semibold)
+            title.font = NSFont(name: "Helvetica", size: 14)
             titles.append(title)
             let help = NSTextField(wrappingLabelWithString: "")
-            help.font = .systemFont(ofSize: 12)
-            help.textColor = .secondaryLabelColor
+            help.font = NSFont(name: "Helvetica", size: 12)
+            help.textColor = .black
             helps.append(help)
             let body = NSStackView(views: [title, help])
             body.orientation = .vertical
@@ -133,7 +167,11 @@ final class Onboarding: NSObject, NSWindowDelegate {
                 installButton = button(.install, #selector(installScript))
                 body.addArrangedSubview(NSStackView(views: [installButton, button(.chooseLibrary, #selector(chooseLibrary), secondary: true)]))
             case 2:
-                keyField.font = .systemFont(ofSize: 13)
+                cloudButton.target = self
+                cloudButton.action = #selector(toggleCloud)
+                cloudButton.font = NSFont(name: "Helvetica", size: 13)
+                body.addArrangedSubview(cloudButton)
+                keyField.font = NSFont(name: "Helvetica", size: 13)
                 keyField.widthAnchor.constraint(equalToConstant: 290).isActive = true
                 body.addArrangedSubview(NSStackView(views: [keyField, button(.saveKey, #selector(saveKey))]))
                 removeButton = button(.removeKey, #selector(removeKey), secondary: true)
@@ -156,7 +194,9 @@ final class Onboarding: NSObject, NSWindowDelegate {
     private func button(_ key: AppText.Key, _ action: Selector, secondary: Bool = false) -> NSButton {
         let button = NSButton(title: text(key), target: self, action: action)
         button.bezelStyle = .rounded
-        button.isBordered = !secondary
+        button.isBordered = false
+        button.font = NSFont(name: "Helvetica", size: 13)
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 26).isActive = true
         button.contentTintColor = .labelColor
         button.setAccessibilityLabel(text(key))
         buttons.append((button, key))
@@ -164,7 +204,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
     }
 
     func updateLocalizedText() {
-        window.title = text(.setupTitle)
+        window.title = "Talkback Settings"
         for (button, key) in buttons {
             button.title = text(key)
             button.setAccessibilityLabel(text(key))
@@ -172,22 +212,23 @@ final class Onboarding: NSObject, NSWindowDelegate {
         for (index, key) in [AppText.Key.installScript, .selectLive, .addKey, .tryIt].enumerated() {
             titles[index].stringValue = text(key)
         }
+        titles[2].stringValue = "Cloud interpretation · optional"
         keyField.setAccessibilityLabel(text(.addKey))
         keyField.setAccessibilityHelp(text(.keyHelp))
         refresh()
     }
 
     private var library: URL {
-        if let path = UserDefaults.standard.string(forKey: "LiveJevUserLibrary") {
+        if let path = UserDefaults.standard.string(forKey: "TalkbackUserLibrary") {
             return URL(fileURLWithPath: path, isDirectory: true)
         }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/Ableton/User Library")
     }
 
-    private var destination: URL { library.appendingPathComponent("Remote Scripts/LiveJev") }
+    private var destination: URL { library.appendingPathComponent("Remote Scripts/Talkback") }
 
     private func version(in folder: URL) -> String? {
-        guard let content = try? String(contentsOf: folder.appendingPathComponent("LiveJev.py"), encoding: .utf8),
+        guard let content = try? String(contentsOf: folder.appendingPathComponent("Talkback.py"), encoding: .utf8),
               let regex = try? NSRegularExpression(pattern: #"["']version["']\s*:\s*["']([^"']+)["']"#),
               let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
               let range = Range(match.range(at: 1), in: content) else { return nil }
@@ -195,6 +236,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
     }
 
     private func readKey() {
+        guard UserDefaults.standard.bool(forKey: "TalkbackAllowJev") else { hasKey = false; keyFailed = false; return }
         do {
             hasKey = try Keychain.read() != nil
             keyFailed = false
@@ -202,6 +244,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
     }
 
     private func refresh() {
+        refreshVoice()
         let sourceVersion = version(in: DaemonClient.remoteScriptSource)
         let installedVersion = version(in: destination)
         let exists = FileManager.default.fileExists(atPath: destination.path)
@@ -215,8 +258,10 @@ final class Onboarding: NSObject, NSWindowDelegate {
         installButton.toolTip = destination.path
         states[1] = liveStatus?.live == true ? .ok : (liveStatus != nil || connectionProblem != nil ? .problem : .pending)
         helps[1].stringValue = text(.selectLiveHelp)
-        states[2] = hasKey || liveStatus?.jev == true ? .ok : (keyFailed ? .problem : .pending)
-        helps[2].stringValue = text(keyFailed ? .keyProblem : !hasKey && liveStatus?.jev == true ? .shellKey : .keyHelp)
+        let cloud = UserDefaults.standard.bool(forKey: "TalkbackAllowJev")
+        states[2] = !cloud || hasKey || liveStatus?.jev == true ? .ok : (keyFailed ? .problem : .pending)
+        helps[2].stringValue = cloud ? "Accepted commands and Live context may be sent to TypeSafe. Audio stays local." : "Off. No API key needed for local commands."
+        keyField.isEnabled = cloud
         removeButton.isHidden = !hasKey
         states[3] = tried && !checking ? (liveStatus?.live == true && connectionProblem == nil ? .ok : .problem) : .pending
         helps[3].stringValue = tryLine ?? text(.tryHelp)
@@ -228,8 +273,21 @@ final class Onboarding: NSObject, NSWindowDelegate {
             glyphs[index].contentTintColor = state == .pending ? .tertiaryLabelColor : .labelColor
             glyphs[index].setAccessibilityLabel("\(titles[index].stringValue): \(label)")
         }
-        doneButton.title = text(states.prefix(3).allSatisfy { $0 == .ok } ? .done : .finishLater)
+        doneButton.title = text(states.prefix(2).allSatisfy { $0 == .ok } ? .done : .finishLater)
         doneButton.setAccessibilityLabel(doneButton.title)
+    }
+
+    func refreshVoice() {
+        listeningButton.state = voice.listeningEnabled ? .on : .off
+        voiceLabel.stringValue = voice.voiceStatus
+        cloudButton.state = UserDefaults.standard.bool(forKey: "TalkbackAllowJev") ? .on : .off
+    }
+
+    @objc private func toggleListening() { voice.setListening(listeningButton.state == .on) }
+
+    @objc private func toggleCloud() {
+        UserDefaults.standard.set(cloudButton.state == .on, forKey: "TalkbackAllowJev")
+        keyChanged()
     }
 
     private func receive(_ message: DaemonMessage) {
@@ -253,10 +311,10 @@ final class Onboarding: NSObject, NSWindowDelegate {
     @objc private func installScript() {
         let manager = FileManager.default
         let parent = destination.deletingLastPathComponent()
-        let temporary = parent.appendingPathComponent(".LiveJev-\(UUID().uuidString)")
+        let temporary = parent.appendingPathComponent(".Talkback-\(UUID().uuidString)")
         do {
             try manager.createDirectory(at: parent, withIntermediateDirectories: true)
-            defer { try? manager.removeItem(at: temporary) }
+            defer { if manager.fileExists(atPath: temporary.path) { try? manager.trashItem(at: temporary, resultingItemURL: nil) } }
             try manager.copyItem(at: DaemonClient.remoteScriptSource, to: temporary)
             guard version(in: temporary) != nil else { throw CocoaError(.fileReadCorruptFile) }
             if manager.fileExists(atPath: destination.path) {
@@ -281,7 +339,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
         panel.prompt = text(.chooseLibrary)
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url, let self else { return }
-            UserDefaults.standard.set(url.path, forKey: "LiveJevUserLibrary")
+            UserDefaults.standard.set(url.path, forKey: "TalkbackUserLibrary")
             self.installProblem = false
             self.refresh()
         }
@@ -329,7 +387,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
     }
 
     @objc private func finish() {
-        UserDefaults.standard.set(true, forKey: "LiveJevSetupDone")
+        UserDefaults.standard.set(true, forKey: "TalkbackSetupDone")
         window.close()
     }
 }

@@ -11,6 +11,9 @@ final class HotKey: @unchecked Sendable {
     }
 
     func register() throws {
+        let selection = UserDefaults.standard.string(forKey: "TalkbackShortcut") ?? "commandShiftSpace"
+        if selection == "disabled" { return }
+        let modifiers = selection == "commandOptionSpace" ? cmdKey | optionKey : selection == "controlOptionSpace" ? controlKey | optionKey : cmdKey | shiftKey
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
@@ -34,7 +37,7 @@ final class HotKey: @unchecked Sendable {
         let identifier = EventHotKeyID(signature: fourCharacterCode("LvSy"), id: 1)
         let registerStatus = RegisterEventHotKey(
             UInt32(kVK_Space),
-            UInt32(cmdKey | shiftKey),  // Cmd-Shift-Space. Ctrl-Option-Space conflicts with macOS input source switching; Option-Space conflicts with Live's Play Selection.
+            UInt32(modifiers),
             identifier,
             GetApplicationEventTarget(),
             0,

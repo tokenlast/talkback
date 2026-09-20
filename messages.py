@@ -31,6 +31,7 @@ MESSAGES: dict[str, dict[Language, str]] = {
     "label.loop": {"ja": "ループ", "en": "Loop"},
     "label.metronome": {"ja": "メトロノーム", "en": "Metronome"},
     "label.record": {"ja": "セッション録音", "en": "Record"},
+    "label.arrangement_record": {"ja": "アレンジメント録音", "en": "Arrangement record"},
     "label.overdub": {"ja": "オーバーダブ", "en": "Overdub"},
     "label.clip_loop": {"ja": "ループ", "en": "Loop"},
     "label.clip_warp": {"ja": "ワープ", "en": "Warp"},
@@ -42,8 +43,8 @@ MESSAGES: dict[str, dict[Language, str]] = {
     "error.live": {"ja": "Liveに繋がりません。装置が載っているか確認してください", "en": "Can't connect to Live. Check that the bridge device is loaded."},
     "error.stale": {"ja": "曲の構成が変わり続けています。少し待ってからもう一度", "en": "The Live Set keeps changing. Wait a moment and try again."},
     "error.empty": {"ja": "一言を入力してください", "en": "Enter a command."},
-    "error.jev_key": {"ja": "Jevの鍵が見つかりません", "en": "The Jev API key was not found."},
-    "error.jev": {"ja": "Jevに繋がりません。少し待ってから試してください", "en": "Can't connect to Jev. Wait a moment and try again."},
+    "error.jev_key": {"ja": "ローカルで解釈できません。別の言い方を試してください。", "en": "That command was not understood locally. Try a supported phrase or enable cloud interpretation in Settings."},
+    "error.jev": {"ja": "クラウドに繋がりません。少し待ってから試してください", "en": "Can't connect to the cloud interpreter. Wait a moment and try again."},
     "error.track_required": {"ja": "トラックが必要です", "en": "A track is required."},
     "error.track_missing": {"ja": "トラックが見つかりません", "en": "The track was not found."},
     "error.named_track_missing": {"ja": "指定したトラックが見つかりません", "en": "The specified track was not found."},
@@ -113,7 +114,7 @@ MESSAGES: dict[str, dict[Language, str]] = {
     "option.yes": {"ja": "はい", "en": "Yes"},
     "option.cancel": {"ja": "やめる", "en": "Cancel"},
     "info.one_at_a_time": {"ja": "1つずつお願いします（例: パッド下げて → ベース上げて）", "en": "Please ask for one action at a time, for example: lower Pad, then raise Bass."},
-    "info.freeform": {"ja": "これは決まった操作では表せない依頼です（作曲や自由な編集には対応していません）", "en": "That is beyond the fixed actions Live Jev supports (no composing or free-form editing)."},
+    "info.freeform": {"ja": "これは決まった操作では表せない依頼です（作曲や自由な編集には対応していません）", "en": "That is beyond the fixed actions Talkback supports (no composing or free-form editing)."},
     "info.plugin_name_needed": {"ja": "どのプラグインか分かりませんでした。名前で言ってください（例: Serum 2 を挿して）", "en": "I could not tell which plug-in you mean. Say its name, for example: insert Serum 2."},
     "info.negated": {"ja": "何も変えていません（「〜しないで」と受け取りました）", "en": "Nothing changed (I took that as “don’t”)."},
     "info.no_undo": {"ja": "戻せる操作がありません", "en": "There is no action to undo."},
@@ -139,7 +140,7 @@ MESSAGES: dict[str, dict[Language, str]] = {
     "error.chain_partial": {"ja": "元に戻せなかったため、「{clause}」の変更が残っている可能性があります", "en": "Rollback failed; the change for “{clause}” may remain."},
     "plugin.not_found": {"ja": "「{name}」に当たるプラグインが一覧にありません", "en": "No plug-in matching {name} is in the list."},
     "plugin.phrase_hint": {"ja": "「{name}」は分かりましたが、言い方は「<トラック>に{name}を挿して」か「{name}入りのMIDIトラック作って」でお願いします", "en": "I found {name}. Say 'insert {name} on <track>' or 'add a new MIDI track with {name}'."},
-    "plugin.enable_script": {"ja": "「{name}」は外部プラグインです。挿すには Live 側で LiveJev を有効にしてください（設定 → Link, Tempo & MIDI → コントロールサーフェス）", "en": "{name} is an external plug-in. Enable LiveJev in Live under Settings > Link, Tempo & MIDI > Control Surface."},
+    "plugin.enable_script": {"ja": "「{name}」は外部プラグインです。挿すには Live 側で Talkback を有効にしてください（設定 → Link, Tempo & MIDI → コントロールサーフェス）", "en": "{name} is an external plug-in. Enable Talkback in Live under Settings > Link, Tempo & MIDI > Control Surface."},
     "plugin.generic": {"ja": "「{word}」だけでは決められません。名前で指定してください（例: {hint}）", "en": "{word} is too broad. Name a specific plug-in, for example: {hint}."},
     "plugin.none": {"ja": "該当なし", "en": "none"},
     "clip.no_clip": {"ja": "開いているクリップがありません（Liveでクリップをダブルクリックして開いてから、もう一度）", "en": "No clip is open. Double-click a clip in Live and try again."},
@@ -171,6 +172,7 @@ ACTION_LABELS: dict[str, dict[Language, str]] = {
     "tempo": {"ja": "テンポ", "en": "Tempo"}, "play": {"ja": "再生", "en": "Play"}, "stop": {"ja": "停止", "en": "Stop"},
     "param": {"ja": "つまみ", "en": "Parameter"}, "none": {"ja": "該当なし", "en": "None"},
     "continue": {"ja": "続きから再生", "en": "Resume"}, "record_on": {"ja": "録音開始", "en": "Record on"}, "record_off": {"ja": "録音停止", "en": "Record off"},
+    "session_record_on": {"ja": "セッション録音開始", "en": "Session record on"}, "session_record_off": {"ja": "セッション録音停止", "en": "Session record off"},
     "overdub_on": {"ja": "オーバーダブ", "en": "Overdub on"}, "overdub_off": {"ja": "オーバーダブ解除", "en": "Overdub off"},
     "loop_on": {"ja": "ループ", "en": "Loop on"}, "loop_off": {"ja": "ループ解除", "en": "Loop off"},
     "metronome_on": {"ja": "メトロノーム", "en": "Metronome on"}, "metronome_off": {"ja": "メトロノーム停止", "en": "Metronome off"},
@@ -205,7 +207,7 @@ for _key, _translations in MESSAGES.items():
         raise ValueError(f"invalid message translations: {_key}")
 
 
-_language: ContextVar[Language] = ContextVar("live_jev_output_language", default="ja")
+_language: ContextVar[Language] = ContextVar("talkback_output_language", default="ja")
 
 
 def current_language() -> Language:

@@ -1,5 +1,5 @@
 #!/opt/homebrew/bin/python3.13
-"""Live Jev background service using newline-delimited JSON over stdin and stdout."""
+"""Talkback background service using newline-delimited JSON over stdin and stdout."""
 
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ from intent import NAMED_TRACK_CONF_MIN, TRACK_STATED_MIN, TRACK_UNSTATED_MAX, C
 from llm_rewrite import GeminiRewriter
 from messages import LocalizedError, action_label, contains_japanese, render, resolve_language, step_label, using_language
 from snapshot import Param, Snapshot, build_snapshot, is_bridge_track, replace_param, replace_track, Clip
+from voice_gate import admit_voice
+from user_commands import load_commands, phrase_key, remove_wake_phrase
 
 
 API_URL = "https://api.typesafe.ai/v1/systemone"
@@ -58,6 +60,8 @@ def strip_zsh_comment(value: str) -> str:
 
 
 def read_key(variable: str = "TYPESAFE_API_KEY") -> str | None:
+    if os.environ.get("TALKBACK_LOCAL_ONLY", "1") == "1":
+        return None
     key = os.environ.get(variable, "").strip()
     if key:
         return key
@@ -390,7 +394,7 @@ def _normalize(text: str) -> str:
 
 MONITOR_ACTIONS = {0: Action.MONITOR_IN, 1: Action.MONITOR_AUTO, 2: Action.MONITOR_OFF}
 MAX_CLIP_SLOTS = 64
-REQUIRE_CONFIRM = os.environ.get("LIVE_JEV_CONFIRM", "0") == "1"  # Actions need no confirmation by default. Set LIVE_JEV_CONFIRM=1 to require it.
+REQUIRE_CONFIRM = os.environ.get("TALKBACK_CONFIRM", "0") == "1"  # Actions need no confirmation by default. Set TALKBACK_CONFIRM=1 to require it.
 PLUGIN_CATALOG_PATH = Path(__file__).with_name("plugins.json")
 PLUGIN_HINT = re.compile(r"トラック|挿|差|入れ|いれ|載せ|のせ|開|立ち上げ|起動|プラグイン|シンセ|音源|エフェクト|読み込|ロード|インサート|使|\b(?:track|insert|add|load|open|put|drop|place|plugin|plug-in|synth|instrument|effect|use|apply|launch)\b", re.IGNORECASE)
 STRONG_NEGATION = re.compile(r"ないで|しなくて|するな|不要|いらない|要らない|禁止|\b(?:don't|do not|never|no need|not necessary)\b", re.IGNORECASE)
@@ -485,7 +489,7 @@ def relative_db_target(value: float, step: Step, current_display: str | None) ->
 
 
 PLUGIN_FORMAT_ORDER = tuple(
-    part.strip().lower() for part in os.environ.get("LIVE_JEV_PLUGIN_FORMATS", "vst3,au,vst").split(",") if part.strip()
+    part.strip().lower() for part in os.environ.get("TALKBACK_PLUGIN_FORMATS", "vst3,au,vst").split(",") if part.strip()
 )
 
 
@@ -522,7 +526,7 @@ class StaleSnapshot(Exception):
     """The snapshot's track count, names, or device counts differ from the current song. Refresh it and retry."""
 
 
-class LiveJevService:
+class TalkbackService:
     def __init__(
         self,
         bridge: BridgeClient | None = None,
@@ -555,7 +559,7 @@ class LiveJevService:
         self._plugin_uris = {}
         self._plugin_script_ok = None
         self._startup_notice_emitted = False
-        self.lang = resolve_language(os.environ.get("LIVE_JEV_LANG"), default="ja")
+        self.lang = resolve_language(os.environ.get("TALKBACK_LANG"), default="ja")
 
     def _m(self, key: str, **values: object) -> str:
         return render(key, lang=self.lang, **values)
@@ -586,8 +590,8 @@ class LiveJevService:
             if self.key is None:
                 self.key = read_key()
             # The public build does not use slow LLM rewriting for ambiguous requests.
-            # Enable it only for experiments with LIVE_JEV_LLM=1. Otherwise return the clarification unchanged.
-            if self.llm_key is None and os.environ.get("LIVE_JEV_LLM", "0") == "1":
+            # Enable it only for experiments with TALKBACK_LLM=1. Otherwise return the clarification unchanged.
+            if self.llm_key is None and os.environ.get("TALKBACK_LLM", "0") == "1":
                 self.llm_key = read_key("GEMINI_API_KEY")
             self.live = self.bridge.ping()
             if self.live:
@@ -638,6 +642,42 @@ class LiveJevService:
 
     def process(self, message: Mapping[str, Any]) -> dict[str, Any]:
         """Process one utterance. If the song structure differs from the snapshot, refresh it and retry the utterance once."""
+        text = message.get("text")
+        mapped = False
+        if isinstance(text, str) and not message.get("cmd"):
+            if message.get("source") == "voice":
+                text = remove_wake_phrase(text, os.environ.get("TALKBACK_WAKE_PHRASE", ""))
+                if text is None:
+                    return {**self.status(message.get("id")), "ignored": True}
+            try:
+                command = load_commands().get(phrase_key(text))
+            except (OSError, UnicodeError, ValueError) as error:
+                return {"id": message.get("id"), "kind": "error", "line": "Check Settings → Custom commands: " + str(error)}
+            if command is not None:
+                text, mapped = command, True
+            message = {**message, "text": text}
+        if message.get("source") == "voice":
+            text = admit_voice(message.get("text"))
+            if text is None:
+                return {**self.status(message.get("id")), "ignored": True}
+            # Never let an ambient utterance complete a stale clarification or
+            # confirmation. The command bar is the explicit answering surface.
+            self.pending = None
+            self.pending_confirm = None
+            self.pending_confirm_created = None
+            message = {"id": message.get("id"), "text": text, "voice_admitted": True}
+        if mapped:
+            # Custom commands may only select existing deterministic operations.
+            # Even with cloud enabled, unknown mappings must never invoke it.
+            key, llm_key = self.key, self.llm_key
+            try:
+                self.key = self.llm_key = None
+                return self._process_with_refresh(message)
+            finally:
+                self.key, self.llm_key = key, llm_key
+        return self._process_with_refresh(message)
+
+    def _process_with_refresh(self, message: Mapping[str, Any]) -> dict[str, Any]:
         with using_language(self.lang):
             try:
                 return self._process_once(message)
@@ -779,6 +819,8 @@ class LiveJevService:
                 return decision
             return self._execute(result.intent, message_id, 0, 0, started, text, None)
         if not self.key:
+            if message.get("voice_admitted"):
+                return {"id": message_id, "kind": "info", "line": "Command not recognized locally. Open the command bar to rephrase."}
             return {"id": message_id, "kind": "error", "line": self._m("error.jev_key")}
         jev_started = time.perf_counter()
         try:
@@ -1405,7 +1447,7 @@ class LiveJevService:
     @staticmethod
     def _same_restored_value(left: Any, right: Any) -> bool:
         if isinstance(left, (str, bool)) or isinstance(right, (str, bool)):
-            return LiveJevService._same_value(left, right)
+            return TalkbackService._same_value(left, right)
         return abs(float(left) - float(right)) <= 1e-9
 
     @staticmethod
@@ -1856,7 +1898,7 @@ class LiveJevService:
         return self._undo_button(message_id)
 
     def _undo_button(self, message_id: Any) -> dict[str, Any]:
-        """Handle the window's Undo command. Restore the last change tracked by Live Jev, or use Live's undo for unsupported change types."""
+        """Handle the window's Undo command. Restore the last change tracked by Talkback, or use Live's undo for unsupported change types."""
         if self.snapshot is None:
             return {"id": message_id, "kind": "error", "line": self._m("error.live")}
         started = time.perf_counter()
@@ -2738,6 +2780,8 @@ class LiveJevService:
         "plugin_not_found": "その名前のデバイスがLiveのブラウザに見つかりません",
         "browser_item_missing": "その名前のデバイスがLiveのブラウザに見つかりません",
         "track_not_found": "指定したトラックが見つかりません",
+        "group_not_found": "No unique group with that name exists in Live. Nothing was added.",
+        "group_placement_failed": "Live could not place the track in that group. The new empty track was removed.",
     }
 
     def _run_plugin_flow(self, intent: Intent, before: Snapshot) -> tuple[int, Intent]:
@@ -2751,7 +2795,9 @@ class LiveJevService:
             if ACTIONS[intent.action].kind == "plugin_track":
                 audio = intent.track_kind == "audio"
                 name = intent.text or None
-                if uri:
+                if intent.group_name:
+                    answer = plugin_script.add_track("audio" if audio else "midi", name, plugin, group_name=intent.group_name, uri=uri)
+                elif uri:
                     # Add the track first, then load by browser URI so the preferred format is used.
                     added = plugin_script.add_track("audio" if audio else "midi", name, None)
                     answer = dict(plugin_script.load(plugin, int(added["track_index"]), uri))
@@ -2839,7 +2885,16 @@ class LiveJevService:
         raw = ack.payload[-1] if isinstance(ack.payload, list) and ack.payload else ack.payload
         if not isinstance(raw, (bool, int, float)) or (isinstance(raw, float) and not math.isfinite(raw)):
             raise ValueError(self._m("error.current_value"))
-        return self._update_from_result(self.snapshot, intent, result), result.elapsed_ms
+        snapshot = self._update_from_result(self.snapshot, intent, result)
+        elapsed = result.elapsed_ms
+        if intent.action is Action.RECORD_ON:
+            # A prior cached playing flag may predate a manual transport change.
+            transport = self.bridge.run(["--api-get", "live_set", "is_playing", request_id("record-transport")])
+            _require_readback(transport, "api_get", "is_playing")
+            playing = next(item.payload for item in reversed(transport.acks) if item.event == "api_get" and item.property == "is_playing")
+            snapshot = replace(snapshot, playing=bool(playing))
+            elapsed += transport.elapsed_ms
+        return snapshot, elapsed
 
     def _refresh_transport(self, intent: Intent) -> tuple[Snapshot, int]:
         assert self.snapshot is not None
@@ -3013,7 +3068,7 @@ class LiveJevService:
         return snapshot
 
 
-def run_stdio(service: LiveJevService) -> int:
+def run_stdio(service: TalkbackService) -> int:
     try:
         startup_notice = getattr(service, "startup_notice", None)
         notice = startup_notice() if callable(startup_notice) else None
@@ -3048,10 +3103,10 @@ def run_stdio(service: LiveJevService) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Live Jev daemon")
+    parser = argparse.ArgumentParser(description="Talkback daemon")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
-    return run_stdio(LiveJevService(verbose=args.verbose))
+    return run_stdio(TalkbackService(verbose=args.verbose))
 
 
 if __name__ == "__main__":

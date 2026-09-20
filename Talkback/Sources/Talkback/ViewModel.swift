@@ -88,6 +88,13 @@ final class ViewModel {
         }
     }
 
+    @discardableResult
+    func submitVoice(_ text: String) -> String? {
+        // Ambient transcripts are never saved to history or logged.
+        let id = "voice-" + makeID()
+        return client.send(.voice(id: id, text: text)) ? id : nil
+    }
+
     func refresh() {
         statusLine = text(.refreshing)
         onChange?()

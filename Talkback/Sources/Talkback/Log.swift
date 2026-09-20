@@ -3,13 +3,13 @@ import Foundation
 final class Log: @unchecked Sendable {
     static let shared = Log()
 
-    private let queue = DispatchQueue(label: "LiveJev.Log")
+    private let queue = DispatchQueue(label: "Talkback.Log")
     private let url: URL
     private static let maximumBytes: UInt64 = 1_048_576
 
     private init() {
         let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        url = library.appendingPathComponent("Logs/LiveJev.log")
+        url = library.appendingPathComponent("Logs/Talkback.log")
         truncateIfNeeded()
     }
 

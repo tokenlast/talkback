@@ -7,6 +7,7 @@ import argparse
 from dataclasses import asdict, dataclass, field
 import json
 import math
+import os
 from pathlib import Path
 import re
 import select
@@ -408,7 +409,9 @@ def run_regression(
             try:
                 for setup in case.setup_utterances:
                     dirty = True
-                    safe_send(setup)
+                    setup_reply = safe_send(setup)
+                    if setup_reply.get("kind") != "result":
+                        raise RuntimeError("case setup did not succeed: {!r}: {}".format(setup, setup_reply.get("line", "")))
                 dirty = True
                 reply = safe_send(case.utterance)
                 kind = str(reply.get("kind", ""))
@@ -548,9 +551,12 @@ class DaemonProcess:
     def __init__(self, python: str, root: Path, timeout: float = 20.0) -> None:
         self.timeout = timeout
         self.counter = 0
+        environment = os.environ.copy()
+        # Run exactly with the caller's selected local/cloud configuration.
+        # Never open an interactive Keychain prompt from an unattended test.
         self.process = subprocess.Popen(
             [python, "daemon.py"], cwd=str(root), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, text=True, bufsize=1,
+            stderr=subprocess.DEVNULL, text=True, bufsize=1, env=environment,
         )
         deadline = time.monotonic() + timeout
         while True:

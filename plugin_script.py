@@ -1,4 +1,4 @@
-"""Thin client for the LiveJev Remote Script running inside Live. Uses newline-delimited JSON over TCP 127.0.0.1:9140."""
+"""Thin client for the Talkback Remote Script running inside Live. Uses newline-delimited JSON over TCP 127.0.0.1:9140."""
 
 from __future__ import annotations
 
@@ -27,13 +27,13 @@ def call(action: str, timeout: float = 20.0, **fields: Any) -> Mapping[str, Any]
                     break
                 data += chunk
     except (OSError, socket.timeout) as error:
-        raise ScriptError("LiveJevに繋がりません（Liveの設定で有効になっていますか）") from error
+        raise ScriptError("Talkbackに繋がりません（Liveの設定で有効になっていますか）") from error
     try:
         decoded = json.loads(data.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError) as error:
-        raise ScriptError("LiveJevの応答を読めません") from error
+        raise ScriptError("Talkbackの応答を読めません") from error
     if not isinstance(decoded, Mapping):
-        raise ScriptError("LiveJevの応答を読めません")
+        raise ScriptError("Talkbackの応答を読めません")
     return decoded
 
 
@@ -59,9 +59,10 @@ def load(name: str, track_index: int | None, uri: str = "") -> Mapping[str, Any]
     return answer
 
 
-def add_track(kind: str, name: str | None = None, device: str | None = None) -> Mapping[str, Any]:
+def add_track(kind: str, name: str | None = None, device: str | None = None, *, group_name: str | None = None, uri: str = "") -> Mapping[str, Any]:
     """Add a track to the right of the selected track, using Live's position and default name. Load device if provided."""
-    answer = call("add_track", timeout=70.0, kind=kind, name=name, device=device)
+    extra = {"group_name": group_name, "uri": uri} if group_name else {}
+    answer = call("add_track", timeout=70.0, kind=kind, name=name, device=device, **extra)
     if not answer.get("ok"):
         raise ScriptError(str(answer.get("error") or "add_track_failed"))
     return answer

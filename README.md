@@ -1,104 +1,115 @@
-# Live Jev
+# Talkback
 
-**Control Ableton Live with one short sentence.**
+Always-available, local voice control for Ableton Live on macOS.
 
-Press **⌘⇧Space** while you work in Live and a small bar appears on top of it, already listening. Say something like “turn it down 3 dB”, “Serum 2 on a new track”, or “quantize to 1/16”. Words appear as you speak; pause for one second or press Enter to run the command. The bar disappears instantly, Live stays in front, and the change is applied. The bar only comes back when it needs to ask you something. Typing still works and immediately stops dictation for that command.
+Say “turn that one up 3 dB,” pause, and Talkback acts on the selected track.
+Speech recognition runs on-device. Familiar commands use deterministic local
+controls; no API key is needed. An optional cloud interpreter is off by default.
 
-English and Japanese are both supported, with many ways to say the same thing.
+**Development preview:** save your Live set before trying hands-free control.
+This is not speaker identification: music, videos, or another person saying an
+accepted command can trigger it. An optional opening phrase reduces accidental
+activation, but does not authenticate the speaker.
 
-> **Status: early (0.1x).** It works end to end, but there is no installer yet — setup takes a few terminal commands. 1.00 will be the first packaged release.
+## Requirements and installation
 
-## What it can do
-- **Mixer** — volume, pan, mute, solo, arm, monitoring, sends (“mute”, “down by 3 dB”, “pan left 20”, “send A up a bit”). If you don’t name a track, it acts on the selected one.
-- **Transport** — play, stop, record, loop, metronome, tempo, jump to bar, undo/redo, capture MIDI.
-- **Clips and scenes** — launch and stop, loop, warp, pitch, gain.
-- **Notes** — quantize (1/4 to 1/32, triplets, strength), legato, transpose by octaves or semitones, velocity, double the loop.
-- **Devices** — insert plug-ins and Live’s own devices (“new track with Omnisphere”, “add EQ Eight”), turn devices on and off. Candidates come from *your* Live browser, so whatever you own just works. New tracks land where Live would put them and get Live’s default names.
-- **Tracks** — add and rename.
-- **Several tracks at once** — mute, solo or arm a range, everything, or everything but one (“mute tracks 3 to 6”, “unsolo all”, “mute everything except Drums”, “solo only Bass”).
-- **Chains** — up to four commands in one sentence, in order (“mute Pad and lower Bass by 3 dB”, “mute Pad, then solo Drums and arm Bass”). Every part is checked first; if one part is unclear, nothing runs. If a later part fails, the earlier ones are put back. Works in Japanese too.
-- Everything can be **undone** (the arrow in the bar, or ⌘Z).
+Apple Silicon, macOS 26+, Xcode 26+ / Swift 6.2, Homebrew Python 3.13, and Ableton
+Live 12. Tested locally with Live 12.2 Suite. Apple speech assets may need an
+initial download; recognition subsequently runs locally.
 
-## How it works
-- Meaning is decided by **Jev**, a small, fast model from [TypeSafe](https://typesafe.ai) that picks from a list of choices. Fixed phrases are answered locally without calling Jev at all. No LLM is involved; when Live Jev is unsure, it asks.
-- Live is driven through one small Python **Remote Script** (`LiveJev`) that runs inside Live. No Max for Live required. A command takes about 20 ms; reading the whole set takes about 10 ms.
-- The bar is Swift (AppKit). Dictation streams through Apple's on-device Speech framework while the bar is open. The background service is Python 3.13, standard library only.
+See [INSTALL.md](INSTALL.md) for build and setup. Source is published; a signed,
+notarized Talkback binary release has not been published.
 
-## Getting started
+## Using it
 
-**Before you start**
-- Live Jev needs **your own API key for TypeSafe’s Jev model**. Sign in at <https://console.typesafe.ai/> to create one; the docs are at <https://docs.typesafe.ai/>. It is a paid API — TypeSafe’s site listed $42 per billion input tokens in September 2026 (one command is a few hundred tokens). Check their site for current pricing.
-- Live needs a one-time setup: a small **Remote Script** is copied into Live’s User Library and selected in Live’s settings. Nothing needs to be added to your sets.
-- Live Jev is distributed as source. You build the app on your own Mac with a few Terminal commands, so you can read and change everything it does.
+- Launch Talkback once. It stays in the menu bar; closing its window does not quit.
+- Listening is enabled by default. Turn it off with the menu bar **Listening**
+  toggle. Enable **Launch at login** in Settings for future logins.
+- By default, commands act only while Live or Talkback's command bar is in front.
+  Switching applications during a phrase discards that phrase.
+- Pause for one second to send. Or open the bar with **⌘⇧Space** and press Return.
+  Escape discards the current phrase. Typing pauses the microphone until the bar closes.
+- “Start recording” defaults to **Arrangement**; Settings can switch it to Session.
+  Explicit “start arrangement recording” and “start session recording” override that setting.
+- Settings also exposes pause time, quiet threshold, opening phrase, automatic
+  submission, foreground restriction, shortcuts, login behavior, and optional cloud use.
 
-### Requirements
-- Apple Silicon Mac (M1 or later), macOS 14 or later, Ableton Live 12 (Suite not required)
-- [Homebrew](https://brew.sh) and the Xcode Command Line Tools (`xcode-select --install`)
-- A TypeSafe API key
+[All supported commands and custom phrase examples](COMMANDS.md).
 
-**The step-by-step guide, with a check for every step, is in [INSTALL.md](INSTALL.md).** You can also hand that file to an AI coding assistant and ask it to set things up for you.
+## Your own phrases, without code
 
-### Quick start
-```bash
-brew install python@3.13
-git clone https://github.com/okinaaudio/live-jev.git ~/live-jev
-cd ~/live-jev
+Settings → Custom commands accepts a plain-text list:
 
-# the Remote Script that runs inside Live
-mkdir -p ~/Music/Ableton/User\ Library/Remote\ Scripts/LiveJev
-cp remote_script/LiveJev/*.py ~/Music/Ableton/User\ Library/Remote\ Scripts/LiveJev/
-
-# your key (replace YOUR_KEY)
-echo 'export TYPESAFE_API_KEY="YOUR_KEY"' >> ~/.zshrc
-
-# build the app → ~/Applications/Live Jev.app
-bash scripts/build-app.sh
+```text
+bring it forward => turn this track up 3 dB
+quiet please => mute this track
+my synth => throw Serum on a new track in Instruments
+ready to go => arm this track and start recording
 ```
-**Do not move or delete the cloned folder after building** — the app runs `daemon.py` from it.
 
-Then, in Live: Settings → **Link, Tempo & MIDI** → **Control Surface** → choose **LiveJev** in a free slot → restart Live. Open `~/Applications/Live Jev.app` (a waveform icon appears in the menu bar; there is no Dock icon), bring Live to the front, and press **⌘⇧Space**.
+Exact phrase matching ignores case and final punctuation. Mappings select existing
+local controls, not arbitrary code. No shell execution, recursive expansion, or
+cloud fallback is allowed for a custom mapping. The file is stored separately
+from source at `~/Library/Application Support/Talkback/commands.txt`.
 
-The first launch opens a **Setup** window that checks the Remote Script, the connection to Live and your API key, and can store the key in the macOS Keychain. The first spoken command also asks for Microphone and Speech Recognition permission. The menu bar icon lets you reopen Setup, switch the language (Automatic / Japanese / English) and launch at login.
+## Privacy and boundaries
 
-### About your plug-ins
-- **There is nothing to import.** Live Jev reads the plug-in list from your own Live browser (Plug-ins, Instruments, Audio Effects, MIDI Effects) the first time you ask for a plug-in, in under a second, and remembers it. Only what you own becomes a candidate.
-- The plug-in has to show up in Live’s browser (VST3/AU enabled and scanned in Live’s plug-in settings).
-- Full names (`Serum 2`), partial names (`serum`) and nicknames all work. To pin a nickname, add it to `plugin_aliases.json`, for example `{"valhalla": "ValhallaVintageVerb"}`.
-- When a plug-in is installed in several formats, Live Jev loads **VST3 first, then AU, then VST2**. Change the order with `LIVE_JEV_PLUGIN_FORMATS`, for example `au,vst3,vst`.
-- Generic words such as “reverb”, “compressor” or “EQ” never insert anything; Live Jev suggests names instead.
-- After installing a new plug-in, restart Live and reopen Live Jev.
-- The author’s plug-in list is not in this repository. Product names in the tests are examples.
+Audio and ambient transcripts are not saved by Talkback or sent to its cloud
+interpreter. The speech model and command-admission filter run on the Mac.
+Rejected conversation is discarded. Operational/error logs contain microphone
+state, not ambient transcripts.
 
-### What leaves your Mac
-- Dictation requires Apple's on-device recognizer, so microphone audio stays on your Mac. The TypeSafe API receives **the resulting sentence** and the **names in the set you have open** that are needed to understand it (track, device, parameter, clip and scene names; plug-in names from your Live browser when you ask for a plug-in by name). No audio, no audio files, no project data.
-- There is no other network traffic. Everything between Live Jev and Live stays on your Mac (127.0.0.1).
+If you explicitly enable cloud interpretation, accepted commands and the Live
+context needed to interpret them (including names) may be sent to TypeSafe.
+The key is stored in macOS Keychain. Apple downloads its speech assets separately.
+Custom mappings always stay on the local interpretation path.
 
-## Safety
-- Only an allow-list of operations can be sent to Live. Deleting tracks or clips and free-form note writing are not possible.
-- “Don’t …” is never executed. If you name a track that does not exist, nothing is written — it never falls back to another track. If you name no track, the selected track is used.
-- A sentence with several commands is never half-executed: every part is checked before anything is written, and a failure puts the earlier parts back.
-- Undo restores the values Live Jev read just before it wrote. It does not rely on Live’s own undo history, which does not record mute, solo or arm.
-- A question from Live Jev (“Which track?”) expires after about 20 seconds, so an old question can never swallow your next command.
-- Your API key is read from the environment (or your shell profile) at run time and is never written to a file.
+The Live control surface binds to `127.0.0.1:9140`. It accepts a fixed allow-list,
+not arbitrary Python or shell commands. Other local processes can connect to this
+port: loopback is not an authentication boundary. Do not expose it to a network.
 
-## Make it yours
-Everything is plain Python and Swift, and you build it yourself, so changing it is expected.
-- **Nicknames for your plug-ins** — `plugin_aliases.json` next to `daemon.py`, for example `{"valhalla": "ValhallaVintageVerb"}`.
-- **Nicknames for your tracks** — `aliases.json` next to `daemon.py`, for example `{"Lead Vox": ["vocals", "the singer"]}`. Live Jev passes them to Jev together with the track names.
-- **More ways to say something** — English wording lives in the `ENGLISH_PHRASES` table at the top of `intent_en.py`; Japanese wording lives in the patterns in `intent.py`. Anything the local patterns do not catch goes to Jev.
-- **The text of replies** — `messages.py`, one entry per message with `ja` and `en`.
-- **New operations** — add the action to `actions.py` and to the allow-list in `bridge_client.py` (and `remote_script/LiveJev/lom_protocol.py` if Live needs a new call). Only allow-listed operations can ever reach Live.
-- **Check your change** — run the unit tests, then the real-Live regression below. Python changes take effect when you quit and reopen the app; Swift changes need `bash scripts/build-app.sh`; Remote Script changes need a Live restart.
+## Reliability and limits
+
+- Hands-free admission is currently English; inherited typed commands also support Japanese.
+- The endpoint uses an adjustable sound threshold, not speaker separation.
+  Loud continuous playback may delay automatic submission. A close microphone or
+  headphones helps; Return is the manual override.
+- Commands wait for a final recognition result, never just an unstable partial.
+- Track names and targets are checked before writes. Missing targets do not fall
+  back to another track.
+- Compatible multi-action commands are planned before writes. Runtime rollback
+  is attempted, and failures are reported; this is not an atomic Live transaction.
+- There is no “zero latency” promise: the selected pause, final recognition, Live's
+  response, and plug-in loading all contribute. Plug-ins can take substantially longer.
+  Arrangement recording also respects Live's configured count-in.
+- Hardware or speech-engine interruptions discard the phrase and retry with
+  backoff while Listening remains enabled. Settings shows the error. Quitting
+  the app or turning Listening off stops the microphone and retries.
+
+See [QA.md](QA.md) for test scope and reproducible checks.
 
 ## Development
-```bash
-/opt/homebrew/bin/python3.13 -m unittest discover -s tests
+
+```sh
+python3 -m unittest discover -q
+cd Talkback && swift test
+# From the repository root:
 bash scripts/build-app.sh
 ```
-- **Real-Live regression:** open an empty Live set, add a MIDI track named `LJ-TEST` plus two more tracks and a return, select one of them, then run `python3 scripts/live_regression.py --check` (read-only) and `python3 scripts/live_regression.py`. It refuses to send anything to a set without the marker track, restores every change, and compares the set before and after.
-- **Your own signed build:** no binaries are published here. If you want a self-contained app for your own use or your team, `scripts/release.sh` bundles a standalone Python, signs with *your* Developer ID, scans the bundle for private paths, and notarizes a `.dmg`. See [RELEASING.md](RELEASING.md).
 
-An optional LLM rewrite lane (`llm_rewrite.py`) is still in the code but off by default (`LIVE_JEV_LLM=1` to try it).
+The app bundles its Python sources and control script. Python code changes require
+rebuilding/reopening the app. Control-script changes require updating it in Settings
+and restarting Live.
 
-## License
-[MIT License](LICENSE) © 2026 Okina Audio
+The action registry is `actions.py`; fixed phrase parsers are `intent_en.py` and
+`intent.py`. New kinds of operations require implementation, allow-list review,
+and tests. Plain-text mappings intentionally cannot bypass these boundaries.
+
+## Credits and license
+
+Talkback is a fork of [Okina Audio's Live Jev](https://github.com/okinaaudio/live-jev),
+not an official upstream release. Git history and the original copyright are
+preserved. Talkback adds continuous on-device speech, local command filtering,
+configurable settings and phrase mappings, Arrangement recording, and a new UI.
+
+MIT licensed. See [LICENSE](LICENSE).

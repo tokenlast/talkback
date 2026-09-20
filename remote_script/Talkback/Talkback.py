@@ -1,4 +1,4 @@
-# Live Jev ⇄ Ableton Live（Remote Script）。
+# Talkback ⇄ Ableton Live（Remote Script）。
 #
 # Purpose: access the browser for plug-in listing and loading from Python inside Live,
 # because the Max for Live bridge cannot reach it. Only the following commands are accepted.
@@ -12,7 +12,7 @@
 #                    (quantize / legato / transpose / velocity / duplicate_loop). One undo reverts it.
 #
 # Newline-delimited JSON over TCP at 127.0.0.1:9140, supporting both one command per connection and persistent connections. Follows other Remote Scripts.
-# Write entries prefixed with "LiveJev:" to Live's log at ~/Library/Preferences/Ableton/Live 12.x/Log.txt.
+# Write entries prefixed with "Talkback:" to Live's log at ~/Library/Preferences/Ableton/Live 12.x/Log.txt.
 
 import json
 import math
@@ -40,7 +40,7 @@ def _safe(read, default):
         return default
 
 
-class LiveJev(ControlSurface):
+class Talkback(ControlSurface):
     def __init__(self, c_instance):
         super().__init__(c_instance)
         self._running = False
@@ -49,7 +49,7 @@ class LiveJev(ControlSurface):
         self._catalog = None
         self._pump = SocketPump(self._create_listener, self._handle_command, on_error=self._socket_error)
         self._start_polling()
-        self.log_message("LiveJev: started, listening on port %d" % SOCKET_PORT)
+        self.log_message("Talkback: started, listening on port %d" % SOCKET_PORT)
 
 # ---- Network listener ---------------------------------------------------------
 
@@ -82,7 +82,7 @@ class LiveJev(ControlSurface):
                 pass
             self._timer = None
         self._pump.close()
-        self.log_message("LiveJev: stopped")
+        self.log_message("Talkback: stopped")
         super().disconnect()
 
     def _create_listener(self):
@@ -101,7 +101,7 @@ class LiveJev(ControlSurface):
     def _socket_error(self, error):
         message = str(error)
         if message != self._last_socket_error:
-            self.log_message("LiveJev socket error: %s" % message)
+            self.log_message("Talkback socket error: %s" % message)
             self._last_socket_error = message
 
     def _handle_command(self, raw):
@@ -112,7 +112,7 @@ class LiveJev(ControlSurface):
         action = cmd.get("action", "")
         try:
             if action == "ping":
-                answer = {"ok": True, "message": "pong", "version": "0.17"}
+                answer = {"ok": True, "message": "pong", "version": "0.19"}
             elif action == "bridge":
                 request = cmd.get("request")
                 ops = cmd.get("ops")
@@ -229,7 +229,7 @@ class LiveJev(ControlSurface):
                 pass
 
     def _coerce_set_value(self, prop, raw):
-        if prop in ("loop", "metronome", "session_record", "overdub", "mute", "solo", "arm", "fold_state", "looping", "warping"):
+        if prop in ("loop", "metronome", "session_record", "record_mode", "overdub", "mute", "solo", "arm", "fold_state", "looping", "warping"):
             if raw not in (0, 1, False, True):
                 raise ValueError("invalid_value")
             return bool(raw)
@@ -580,7 +580,7 @@ class LiveJev(ControlSurface):
                 continue
             self._walk(root, section, items)
         self._catalog = items
-        self.log_message("LiveJev: catalog %d items" % len(items))
+        self.log_message("Talkback: catalog %d items" % len(items))
         return {"ok": True, "cached": False, "count": len(items), "items": items}
 
     def _find_item(self, name, uri):
@@ -650,7 +650,7 @@ class LiveJev(ControlSurface):
         browser.load_item(item)
         after = [str(d.name) for d in target.devices]
         selected_index = tracks.index(target) if target in tracks else None
-        self.log_message("LiveJev: loaded %s on track %s (%d -> %d devices)" % (entry["name"], selected_index, len(before), len(after)))
+        self.log_message("Talkback: loaded %s on track %s (%d -> %d devices)" % (entry["name"], selected_index, len(before), len(after)))
         return {"ok": True, "name": entry["name"], "uri": entry["uri"], "track_index": selected_index, "devices_before": before, "devices_after": after}
 
     def _add_track(self, cmd):
@@ -658,12 +658,20 @@ class LiveJev(ControlSurface):
         kind = str(cmd.get("kind", "midi"))
         name = str(cmd.get("name") or "").strip()
         device = str(cmd.get("device") or "").strip()
+        group_name = str(cmd.get("group_name") or "").strip()
+        group = None
+        tracks = list(song.tracks)
+        if group_name:
+            matches = [track for track in tracks if _safe(lambda: track.is_foldable, False) and str(track.name).casefold() == group_name.casefold()]
+            if len(matches) != 1:
+                return {"ok": False, "error": "group_not_found"}
+            group = matches[0]
         browser = self._browser()
         item = None
         if device:
             if getattr(browser, "hotswap_target", None) is not None:
                 return {"ok": False, "error": "hotswap_active", "name": device}
-            entry = self._find_item(device, "")
+            entry = self._find_item(device, str(cmd.get("uri") or ""))
             if entry is None:
                 return {"ok": False, "error": "plugin_not_found", "name": device}
             item = self._resolve_browser_item(entry)
@@ -672,11 +680,19 @@ class LiveJev(ControlSurface):
         tracks = list(song.tracks)
         selected = song.view.selected_track
         index = tracks.index(selected) + 1 if selected in tracks else -1
+        if group is not None:
+            index = tracks.index(group) + 1
         if index >= len(tracks):
             index = -1
         song.begin_undo_step()
         try:
             track = song.create_audio_track(index) if kind == "audio" else song.create_midi_track(index)
+            if group is not None and _safe(lambda: track.group_track, None) != group:
+                # Only remove the empty track just created by this operation.
+                # Never load a device into a silently mis-targeted location.
+                song.delete_track(list(song.tracks).index(track))
+                song.view.selected_track = selected
+                return {"ok": False, "error": "group_placement_failed"}
             if name:
                 track.name = name
             song.view.selected_track = track
@@ -684,7 +700,7 @@ class LiveJev(ControlSurface):
                 browser.load_item(item)
             new_index = list(song.tracks).index(track)
             after = [str(d.name) for d in track.devices]
-            self.log_message("LiveJev: added %s track at %d (%s)" % (kind, new_index, ", ".join(after)))
+            self.log_message("Talkback: added %s track at %d (%s)" % (kind, new_index, ", ".join(after)))
             return {"ok": True, "track_index": new_index, "track": str(track.name), "devices_after": after}
         finally:
             song.end_undo_step()
@@ -789,15 +805,3 @@ class LiveJev(ControlSurface):
             return info
         finally:
             song.end_undo_step()
-
-    def disconnect(self):
-        self._running = False
-        timer = self._timer
-        self._timer = None
-        if timer is not None:
-            try:
-                timer.stop()
-            except Exception:
-                pass
-        self._pump.close()
-        super().disconnect()

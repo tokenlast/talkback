@@ -8,7 +8,7 @@ import unittest.mock
 
 from actions import ACTIONS, bar_to_beats
 from bridge_client import Ack, BridgeError, BridgeResult, validate_arguments
-from daemon import LiveJevService
+from daemon import TalkbackService
 from intent import Action, Number, Step, parse_local, parse_number
 from snapshot import song_fields
 from tests.support import sample_snapshot
@@ -212,7 +212,7 @@ class ConfirmGateTests(unittest.TestCase):
         self.addCleanup(self._confirm_patch.stop)
 
     def _service(self, bridge, **kwargs):
-        return LiveJevService(
+        return TalkbackService(
             bridge=bridge,
             snapshot=_snapshot_with_song(),
             key="x",
@@ -239,8 +239,8 @@ class ConfirmGateTests(unittest.TestCase):
         service.process({"id": "1", "text": "録音開始"})
         answer = service.process({"id": "2", "text": "はい"})
         self.assertEqual(answer["kind"], "result")
-        self.assertTrue(any("--api-set" in call and "session_record" in call for call in bridge.calls))
-        self.assertTrue(service.snapshot.song.get("session_record"))
+        self.assertTrue(any("--api-set" in call and "record_mode" in call for call in bridge.calls))
+        self.assertTrue(service.snapshot.song.get("record_mode"))
 
     def test_expired_confirmation_does_not_execute(self) -> None:
         now = [100.0]
@@ -430,7 +430,7 @@ class SendRenameAddTests(unittest.TestCase):
                 return super().run(arguments)
 
         bridge = Bridge()
-        service = LiveJevService(bridge=bridge, snapshot=self._snapshot(), key="x",
+        service = TalkbackService(bridge=bridge, snapshot=self._snapshot(), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         first = service.process({"id": "1", "text": "Bassの名前をLow Endにして"})
@@ -542,7 +542,7 @@ class AddTrackWithDeviceTests(unittest.TestCase):
             def read(self):
                 return next(reads)
 
-        service = LiveJevService(bridge=Bridge(), snapshot=states[0], key="x",
+        service = TalkbackService(bridge=Bridge(), snapshot=states[0], key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         service.reader = Reader()
@@ -605,7 +605,7 @@ class PluginNoticeTests(unittest.TestCase):
         from unittest import mock
         import daemon as D
         bridge = RecordingBridge()
-        service = LiveJevService(bridge=bridge, snapshot=_snapshot_with_song(), key="x",
+        service = TalkbackService(bridge=bridge, snapshot=_snapshot_with_song(), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         with mock.patch.object(D, "load_plugin_catalog", return_value=("Serum2", "ValhallaVintageVerb", "Altiverb 8")), \
@@ -638,7 +638,7 @@ class PluginFlowTests(unittest.TestCase):
         reads = iter([(with_plugin, 3)])
         loads: list[tuple[str, int | None]] = []
         bridge = RecordingBridge()
-        service = LiveJevService(bridge=bridge, snapshot=base, key="x",
+        service = TalkbackService(bridge=bridge, snapshot=base, key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         service.reader = type("R", (), {"read": staticmethod(lambda: next(reads))})()
@@ -661,12 +661,12 @@ class NoConfirmByDefaultTests(unittest.TestCase):
         import daemon as D
         self.assertFalse(D.REQUIRE_CONFIRM)
         bridge = RecordingBridge()
-        service = LiveJevService(bridge=bridge, snapshot=_snapshot_with_song(), key="x",
+        service = TalkbackService(bridge=bridge, snapshot=_snapshot_with_song(), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         answer = service.process({"id": "1", "text": "録音開始"})
         self.assertEqual(answer["kind"], "result")
-        self.assertTrue(any("session_record" in call for call in bridge.calls))
+        self.assertTrue(any("record_mode" in call for call in bridge.calls))
 
     def test_plugin_shortest_partial_and_alias(self) -> None:
         from unittest import mock
@@ -682,7 +682,7 @@ class NoConfirmByDefaultTests(unittest.TestCase):
 class UndoButtonTests(unittest.TestCase):
     def test_undo_button_restores_or_falls_back_to_live_undo(self) -> None:
         bridge = RecordingBridge()
-        service = LiveJevService(bridge=bridge, snapshot=_snapshot_with_song(), key="x",
+        service = TalkbackService(bridge=bridge, snapshot=_snapshot_with_song(), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         first = service.process({"id": "0", "cmd": "undo"})
@@ -734,7 +734,7 @@ class SelectedTrackTests(unittest.TestCase):
 
     def _service(self, requester, snapshot=None, **kwargs):
         bridge = self.SelectedBridge()
-        service = LiveJevService(bridge=bridge, snapshot=snapshot or _snapshot_with_song(), key="x", requester=requester, llm_key=None,
+        service = TalkbackService(bridge=bridge, snapshot=snapshot or _snapshot_with_song(), key="x", requester=requester, llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")), **kwargs)
         return bridge, service
 
@@ -864,8 +864,9 @@ class SelectedTrackTests(unittest.TestCase):
 
     def test_named_track_with_db_amount_is_not_refused_locally(self) -> None:
         snapshot = _snapshot_with_song()
-        for text in ("Bassを3dB下げて", "Bassの音量を3dB上げて", "Padを2.5デシベル下げて"):
-            self.assertIsNone(parse_local(text, snapshot), text)
+        for text, track, number, step in (("Bassを3dB下げて", 1, 3, Step.DOWN_SMALL), ("Bassの音量を3dB上げて", 1, 3, Step.UP_SMALL), ("Padを2.5デシベル下げて", 0, 2.5, Step.DOWN_SMALL)):
+            parsed = parse_local(text, snapshot)
+            self.assertEqual((parsed.action, parsed.track, parsed.number.value, parsed.step), (Action.VOLUME, track, number, step), text)
         named = parse_local("Bassを少し下げて", snapshot)
         self.assertEqual((named.action, named.track), (Action.VOLUME, 1))
 
@@ -873,7 +874,7 @@ class SelectedTrackTests(unittest.TestCase):
         from tests.support import StatefulLive
         for phrase in ("undo that", "undo", "take that back", "元に戻して", "取り消して"):
             live = StatefulLive()
-            service = LiveJevService(bridge=live, snapshot=_snapshot_with_song(), key="x", llm_key=None,
+            service = TalkbackService(bridge=live, snapshot=_snapshot_with_song(), key="x", llm_key=None,
                                      requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
             self.assertEqual(service.process({"id": "1", "text": "mute Pad and solo Drums"})["kind"], "result", phrase)
             self.assertEqual((live.flags("mute")["Pad"], live.flags("solo")["Drums"]), (True, True), phrase)
@@ -889,7 +890,7 @@ class SelectedTrackTests(unittest.TestCase):
 
         def build():
             live = StatefulLive()
-            service = LiveJevService(bridge=live, snapshot=_snapshot_with_song(), key="x", llm_key=None,
+            service = TalkbackService(bridge=live, snapshot=_snapshot_with_song(), key="x", llm_key=None,
                                      requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
             return live, service
 
@@ -1102,7 +1103,7 @@ class SelectedTrackTests(unittest.TestCase):
                 calls.append(args)
                 return response("none", action_conf=0.1)
 
-            service = LiveJevService(
+            service = TalkbackService(
                 bridge=bridge, snapshot=snapshot, key="x", requester=requester,
                 llm_key=None, rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")),
             )
@@ -1269,7 +1270,7 @@ class SelectedTrackTests(unittest.TestCase):
     def test_unresolved_clip_note_target_never_calls_the_script(self) -> None:
         from unittest import mock
         import daemon as D
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
             requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")),
         )
@@ -1446,7 +1447,7 @@ class PluginFallbackTests(unittest.TestCase):
 
     def _service(self, requester):
         bridge = SelectedTrackTests.SelectedBridge()
-        service = LiveJevService(bridge=bridge, snapshot=_snapshot_with_song(), key="x", requester=requester, llm_key=None,
+        service = TalkbackService(bridge=bridge, snapshot=_snapshot_with_song(), key="x", requester=requester, llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         return bridge, service
 
@@ -1572,7 +1573,7 @@ class StaleSnapshotTests(unittest.TestCase):
                 return super().run(arguments)
 
         bridge = ListingBridge()
-        service = LiveJevService(bridge=bridge, snapshot=old, key="x",
+        service = TalkbackService(bridge=bridge, snapshot=old, key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         service.reader = type("R", (), {"read": staticmethod(lambda: (fresh, 5))})()
@@ -1595,13 +1596,13 @@ class StaleSnapshotTests(unittest.TestCase):
                     return BridgeResult((Ack("api_device_list", arguments[-1], {"tracks": tracks}),), 1, 0, False)
                 return super().run(arguments)
 
-        service = LiveJevService(bridge=ReorderedBridge(), snapshot=snapshot, key="x")
+        service = TalkbackService(bridge=ReorderedBridge(), snapshot=snapshot, key="x")
         self.assertTrue(service._snapshot_is_stale())
 
     def test_structure_refresh_clears_previous_and_undo_marker(self) -> None:
         base = _snapshot_with_song()
         changed = replace(base, tracks=(replace(base.tracks[0], name="Renamed"),) + base.tracks[1:])
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=base, key="x")
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=base, key="x")
         service.previous = object()
         service._undo_target_tracks = (3, 4)
         service.reader = type("R", (), {"read": staticmethod(lambda: (changed, 1))})()
@@ -1614,7 +1615,7 @@ class ConnectionAndCacheRegressionTests(unittest.TestCase):
     def test_exact_native_device_precedes_generic_notice(self) -> None:
         import daemon as D
         bridge = RecordingBridge()
-        service = LiveJevService(bridge=bridge, snapshot=_snapshot_with_song(), key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
+        service = TalkbackService(bridge=bridge, snapshot=_snapshot_with_song(), key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
         with unittest.mock.patch.object(D, "REQUIRE_CONFIRM", True):
             exact = service.process({"id": "eq8", "text": "EQ Eight入りのトラック作って"})
         self.assertEqual(exact["kind"], "confirm")
@@ -1626,7 +1627,7 @@ class ConnectionAndCacheRegressionTests(unittest.TestCase):
         from daemon import Pending
         from intent import IntentResult, _local_intent
         intent = _local_intent(Action.ADD_TRACK_WITH_DEVICE)
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x")
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x")
         service.pending = Pending(IntentResult(intent, (), (), ()), "native_device")
         with unittest.mock.patch.object(D, "REQUIRE_CONFIRM", True):
             answer = service.process({"id": "native", "text": "Operator"})
@@ -1635,7 +1636,7 @@ class ConnectionAndCacheRegressionTests(unittest.TestCase):
 
     def test_disconnected_status_and_command_reprobe(self) -> None:
         base = _snapshot_with_song()
-        service = LiveJevService(bridge=SelectedTrackTests.SelectedBridge(), snapshot=None, key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
+        service = TalkbackService(bridge=SelectedTrackTests.SelectedBridge(), snapshot=None, key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
         service.reader = type("R", (), {"read": staticmethod(lambda: (base, 1))})()
         status = service.process({"id": "s", "cmd": "status"})
         self.assertTrue(status["live"])
@@ -1644,7 +1645,7 @@ class ConnectionAndCacheRegressionTests(unittest.TestCase):
 
     def test_failed_script_ping_is_not_cached(self) -> None:
         import daemon as D
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x")
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x")
         with unittest.mock.patch.object(D.plugin_script, "ping", side_effect=[False, True]):
             self.assertFalse(service._script_available())
             self.assertTrue(service._script_available())
@@ -1662,9 +1663,9 @@ class ConnectionAndCacheRegressionTests(unittest.TestCase):
 
     def test_swift_wire_and_hidden_request_regressions_are_encoded(self) -> None:
         root = __import__("pathlib").Path(__file__).parents[1]
-        messages = (root / "LiveJev/Sources/LiveJev/Messages.swift").read_text()
-        view_model = (root / "LiveJev/Sources/LiveJev/ViewModel.swift").read_text()
-        panel = (root / "LiveJev/Sources/LiveJev/Panel.swift").read_text()
+        messages = (root / "Talkback/Sources/Talkback/Messages.swift").read_text()
+        view_model = (root / "Talkback/Sources/Talkback/ViewModel.swift").read_text()
+        panel = (root / "Talkback/Sources/Talkback/Panel.swift").read_text()
         self.assertIn("case status, result, ask, confirm, info, error, unknown", messages)
         self.assertIn("case .unknown:", messages)
         self.assertIn("let requestID: String?", view_model)
@@ -1682,7 +1683,7 @@ class ConnectionAndCacheRegressionTests(unittest.TestCase):
     def test_unchanged_structure_is_not_reread(self) -> None:
         import time as _time
         base = _snapshot_with_song()
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=replace(base, taken_at=_time.time()), key="x",
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=replace(base, taken_at=_time.time()), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         service.reader = type("R", (), {"read": staticmethod(lambda: (_ for _ in ()).throw(AssertionError("再読込は不要")))})()
@@ -1715,7 +1716,7 @@ class ClipNotesTests(unittest.TestCase):
         from unittest import mock
         import daemon as D
         calls: list[tuple] = []
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         def fake(op, track, slot, **fields):
@@ -1758,7 +1759,7 @@ class ReviewFindingsTests(unittest.TestCase):
         from unittest import mock
         import daemon as D
         seen: list[dict] = []
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         rereads: list[int] = []
@@ -1786,7 +1787,7 @@ class AbletonStyleStructureTests(unittest.TestCase):
     """The component inside Live adds tracks and plug-ins using Live's position, default name, and single-undo behavior."""
 
     def _service(self):
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         service.reader = type("R", (), {"read": staticmethod(lambda: (_snapshot_with_song(), 1))})()
@@ -1839,7 +1840,7 @@ class InsertVerbCoverageTests(unittest.TestCase):
         import daemon as D
         from tests.support import response
         seen: list[tuple] = []
-        service = LiveJevService(bridge=SelectedTrackTests.SelectedBridge(), snapshot=_snapshot_with_song(), key="x",
+        service = TalkbackService(bridge=SelectedTrackTests.SelectedBridge(), snapshot=_snapshot_with_song(), key="x",
                                  requester=lambda *_: response("none", action_conf=0.3), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         with mock.patch.object(service, "_plugin_names", return_value=("Serum 2", "Omnisphere")), \
@@ -1855,7 +1856,7 @@ class AmbiguousInsertVerbTests(unittest.TestCase):
     """Insertion verbs also describe other actions. Try normal parsing first when the name is absent from the catalog."""
 
     def _service(self, requester):
-        service = LiveJevService(bridge=SelectedTrackTests.SelectedBridge(), snapshot=_snapshot_with_song(), key="x", requester=requester, llm_key=None,
+        service = TalkbackService(bridge=SelectedTrackTests.SelectedBridge(), snapshot=_snapshot_with_song(), key="x", requester=requester, llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         return service
 
@@ -1916,7 +1917,7 @@ class PluginFormatPreferenceTests(unittest.TestCase):
         from unittest import mock
         import daemon as D
         calls: list[tuple] = []
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x",
                                  requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")), llm_key=None,
                                  rewriter=lambda *_: (_ for _ in ()).throw(AssertionError("LLM")))
         service.reader = type("R", (), {"read": staticmethod(lambda: (_snapshot_with_song(), 1))})()
@@ -1960,7 +1961,7 @@ class RoundThreeRegressionTests(unittest.TestCase):
                 return BridgeResult((Ack("api_mixer_status", arguments[at + 2], payload),), 1, 0, False)
 
         bridge = Bridge()
-        service = LiveJevService(bridge=bridge, snapshot=_snapshot_with_song(), key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
+        service = TalkbackService(bridge=bridge, snapshot=_snapshot_with_song(), key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
         self.assertEqual(service.process({"id": "db", "text": "lower Pad by 3 dB"})["kind"], "result")
         first_write = next(index for index, call in enumerate(bridge.calls) if "--api-parameter-set" in call)
         self.assertTrue(any("--api-call" in call for call in bridge.calls[:first_write]))
@@ -1968,7 +1969,7 @@ class RoundThreeRegressionTests(unittest.TestCase):
         self.assertIs(service.previous.step, Step.DOWN_SMALL, "a dB move must remember its direction so that 'a bit more' can repeat it")
 
         failed = Bridge(fail_display=True)
-        service = LiveJevService(bridge=failed, snapshot=_snapshot_with_song(), key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
+        service = TalkbackService(bridge=failed, snapshot=_snapshot_with_song(), key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
         answer = service.process({"id": "db", "text": "lower Pad by 3 dB"})
         self.assertEqual(answer["kind"], "error")
         self.assertIn("現在値", answer["line"])
@@ -1981,7 +1982,7 @@ class RoundThreeRegressionTests(unittest.TestCase):
         fresh = replace(stale, value=0.80)
         fresh_device = replace(snapshot.tracks[0].devices[0], params=(fresh,))
         live = replace(snapshot, tracks=(replace(snapshot.tracks[0], devices=(fresh_device,)),) + snapshot.tracks[1:])
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=snapshot, key="x")
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=snapshot, key="x")
         rebound = service._rebind_refreshed_intent(live, replace(_local_intent(Action.PARAM, track=0, step=Step.UP_SMALL), param=stale))
         self.assertEqual(rebound.param.value, 0.80)
         missing = replace(live, tracks=(replace(live.tracks[0], devices=()),) + live.tracks[1:])
@@ -1992,7 +1993,7 @@ class RoundThreeRegressionTests(unittest.TestCase):
         from snapshot import Device
         snapshot = _snapshot_with_song()
         changed = replace(snapshot, tracks=(replace(snapshot.tracks[0], devices=(Device(0, "Utility", (), "live_set tracks 0 devices 0"),)),) + snapshot.tracks[1:])
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=snapshot, key="x")
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=snapshot, key="x")
         service.previous = object()
         service.pending_confirm = (object(), 0, 0, "x", None, "A")
         service.pending_confirm_created = service._clock()
@@ -2073,7 +2074,7 @@ class RoundThreeRegressionTests(unittest.TestCase):
 
     def test_confirmation_id_must_match_and_targeted_cancel_preserves_proposal(self) -> None:
         import daemon as D
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x", requester=lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
         with unittest.mock.patch.object(D, "REQUIRE_CONFIRM", True):
             self.assertEqual(service.process({"id": "A", "text": "record"})["kind"], "confirm")
             service.process({"id": "cancel", "cmd": "cancel_pending", "target": "old"})
@@ -2082,13 +2083,13 @@ class RoundThreeRegressionTests(unittest.TestCase):
             self.assertIsNotNone(service.pending_confirm)
 
     def test_operation_words_are_valid_rename_destinations(self) -> None:
-        service = LiveJevService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x")
+        service = TalkbackService(bridge=RecordingBridge(), snapshot=_snapshot_with_song(), key="x")
         for text in ("rename Bass to Play", "rename Bass to Stop", "Bassの名前をミュートにして", 'rename Bass to "Stop"'):
             self.assertFalse(service._has_compound_local_operations(text), text)
 
     def test_swift_proposal_and_undo_regressions_are_encoded(self) -> None:
         from pathlib import Path
-        root = Path(__file__).parents[1] / "LiveJev/Sources/LiveJev"
+        root = Path(__file__).parents[1] / "Talkback/Sources/Talkback"
         view_model = (root / "ViewModel.swift").read_text()
         panel = (root / "Panel.swift").read_text()
         messages = (root / "Messages.swift").read_text()

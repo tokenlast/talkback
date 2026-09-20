@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# Build Live Jev (formerly Live Say) as an .app, apply an ad hoc signature, and install it in ~/Applications.
+# Build Talkback, apply a local signature, and install it in ~/Applications.
 # Usage: build-app.sh [--no-install]   (--no-install only builds and signs the app)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SAY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PKG_DIR="$SAY_DIR/LiveJev"
-BUILD_DIR="$HOME/dev/live-jev-build"
-APP_NAME="Live Jev.app"
-OLD_APP_NAME="LiveSay.app"  # Previous name. Move any copy left in ~/Applications aside.
+PKG_DIR="$SAY_DIR/Talkback"
+BUILD_DIR="$HOME/dev/talkback-build"
+APP_NAME="Talkback.app"
 APP_DIR="$BUILD_DIR/$APP_NAME"
 PYTHON="/opt/homebrew/bin/python3.13"
 INSTALL_DIR="$HOME/Applications"
@@ -24,7 +23,7 @@ command -v swift >/dev/null || fail "swift was not found (install Xcode)"
 
 say "1/5 Building the app"
 (cd "$PKG_DIR" && swift build -c release --scratch-path "$BUILD_DIR" >/dev/null) || fail "swift build failed"
-BIN="$BUILD_DIR/release/LiveJev"
+BIN="$BUILD_DIR/release/Talkback"
 [[ -x "$BIN" ]] || fail "Executable not found: $BIN"
 
 say "2/5 Creating the icon"
@@ -41,9 +40,17 @@ iconutil -c icns "$ICONSET" -o "$BUILD_DIR/AppIcon.icns" || fail "iconutil faile
 say "3/5 Assembling the .app"
 trash_existing "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
-cp "$BIN" "$APP_DIR/Contents/MacOS/LiveJev"
+cp "$BIN" "$APP_DIR/Contents/MacOS/Talkback"
 cp "$PKG_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$BUILD_DIR/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+mkdir -p "$APP_DIR/Contents/Resources/daemon" "$APP_DIR/Contents/Resources/remote_script/Talkback"
+DAEMON_FILES=(daemon.py intent.py intent_en.py voice_gate.py user_commands.py actions.py messages.py snapshot.py bridge_client.py script_bridge_client.py plugin_script.py llm_rewrite.py cli.py)
+for source in "${DAEMON_FILES[@]}"; do
+  cp "$SAY_DIR/$source" "$APP_DIR/Contents/Resources/daemon/"
+done
+cp "$SAY_DIR"/remote_script/Talkback/*.py "$APP_DIR/Contents/Resources/remote_script/Talkback/"
+cp "$SAY_DIR/LICENSE" "$APP_DIR/Contents/Resources/LICENSE"
+cp "$SAY_DIR/COMMANDS.md" "$APP_DIR/Contents/Resources/COMMANDS.md"
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
 plutil -lint "$APP_DIR/Contents/Info.plist" >/dev/null || fail "Info.plist is invalid"
 
@@ -54,10 +61,6 @@ codesign --verify --deep --strict "$APP_DIR" || fail "Signature verification fai
 if [[ "$INSTALL" -eq 1 ]]; then
   say "5/5 Installing in ~/Applications"
   mkdir -p "$INSTALL_DIR"
-  if [[ -d "$INSTALL_DIR/$OLD_APP_NAME" ]]; then
-    trash_existing "$BUILD_DIR/$OLD_APP_NAME.old"
-    mv "$INSTALL_DIR/$OLD_APP_NAME" "$BUILD_DIR/$OLD_APP_NAME.old"
-  fi
   if [[ -d "$INSTALL_DIR/$APP_NAME" ]]; then
     trash_existing "$BUILD_DIR/$APP_NAME.bak"
     mv "$INSTALL_DIR/$APP_NAME" "$BUILD_DIR/$APP_NAME.bak"

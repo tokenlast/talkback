@@ -9,7 +9,7 @@ import time
 from unittest import mock
 import unittest
 
-from daemon import JevClient, LiveJevService, Pending, StaleSnapshot, run_stdio
+from daemon import JevClient, TalkbackService, Pending, StaleSnapshot, run_stdio
 from bridge_client import Ack, BridgeError, BridgeResult
 from intent import Action, interpret_response, _local_intent
 from tests.support import response, sample_snapshot
@@ -67,7 +67,7 @@ class DaemonDecisionTests(unittest.TestCase):
             response("mute", "t2"),
         ])
         rewrite = mock.Mock(return_value="ドラムをミュート")
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -86,7 +86,7 @@ class DaemonDecisionTests(unittest.TestCase):
     def test_llm_unknown_falls_back_to_ask(self) -> None:
         bridge = NoWriteBridge()
         rewrite = mock.Mock(return_value="不明")
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -101,7 +101,7 @@ class DaemonDecisionTests(unittest.TestCase):
         rewrite.assert_called_once()
 
     def test_llm_transport_error_is_returned_without_being_rewritten(self) -> None:
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=NoWriteBridge(),
             snapshot=sample_snapshot(),
             key="x",
@@ -120,7 +120,7 @@ class DaemonDecisionTests(unittest.TestCase):
             response("mute", "t2"),
             response("solo", "t1"),
         ])
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -144,7 +144,7 @@ class DaemonDecisionTests(unittest.TestCase):
         ))
         bridge = self.BoolBridge()
         bridge.values = {(track.path, "mute"): track.mute for track in snapshot.tracks}
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=snapshot,
             key="x",
@@ -164,7 +164,7 @@ class DaemonDecisionTests(unittest.TestCase):
 
     def test_clear_single_command_never_calls_llm(self) -> None:
         bridge = self.BoolBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -190,7 +190,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return BridgeResult((Ack("api_get", arguments[at + 3], 90, "live_set", "tempo"),), 1, 0, False)
 
         bridge = TempoBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -222,7 +222,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 raise AssertionError(message)
 
         bridge = RenamedBridge()
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_args: self.fail("Jev was called"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_args: self.fail("Jev was called"))
         rereads = []
         service.reader = type("R", (), {"read": staticmethod(lambda: rereads.append(1) or (sample_snapshot(), 1))})()
         answer = service.process({"text": "Drumsをミュート"})
@@ -247,7 +247,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return BridgeResult((Ack("api_get", arguments[at + 3], value, "live_set", "is_playing"),), 1, 0, False)
 
         bridge = DelayedTransportBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=replace(sample_snapshot(), playing=False),
             requester=lambda *_args: self.fail("Jev was called"),
@@ -284,7 +284,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return BridgeResult((Ack("api_call", arguments[at + 4], f"{self.value:g}", arguments[at + 1], "str_for_value"),), 1, 0, False)
 
         bridge = MutableVolumeBridge()
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_args: response("volume", "t0", "down_small"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_args: response("volume", "t0", "down_small"))
         self.assertEqual(service.process({"text": "パッド下げて"})["kind"], "result")
         writes = sum("--api-parameter-set" in call for call in bridge.calls)
         bridge.value = 0.42
@@ -296,7 +296,7 @@ class DaemonDecisionTests(unittest.TestCase):
 
     def test_missing_track_asks_and_never_executes(self) -> None:
         bridge = NoWriteBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="not-a-real-key",
@@ -309,7 +309,7 @@ class DaemonDecisionTests(unittest.TestCase):
 
     def test_generation_is_info_before_low_action_confidence(self) -> None:
         bridge = NoWriteBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="not-a-real-key",
@@ -329,7 +329,7 @@ class DaemonDecisionTests(unittest.TestCase):
         for mocked, line in cases:
             with self.subTest(line=line):
                 bridge = NoWriteBridge()
-                service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda _p, _k, answer=mocked: answer)
+                service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda _p, _k, answer=mocked: answer)
                 answer = service.process({"text": "曖昧な依頼"})
                 self.assertEqual(answer["kind"], "ask")
                 self.assertEqual(answer["line"], line)
@@ -344,7 +344,7 @@ class DaemonDecisionTests(unittest.TestCase):
         for mocked, line in cases:
             with self.subTest(line=line):
                 bridge = NoWriteBridge()
-                service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda _p, _k, answer=mocked: answer)
+                service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda _p, _k, answer=mocked: answer)
                 answer = service.process({"text": "操作"})
                 self.assertEqual(answer["kind"], "error")
                 self.assertEqual(answer["line"], line)
@@ -360,7 +360,7 @@ class DaemonDecisionTests(unittest.TestCase):
             return response("volume", "none", "down_small", track_conf=0.2)
 
         bridge = NoWriteBridge()
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=requester)
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=requester)
         self.assertEqual(service.process({"text": "下げて"})["kind"], "ask")
         with self.assertRaises(AssertionError):
             service.process({"text": "Bass"})
@@ -369,7 +369,7 @@ class DaemonDecisionTests(unittest.TestCase):
         self.assertIn("--api-mixer-status", first_real)
 
     def test_invalid_input_is_an_error(self) -> None:
-        service = LiveJevService(bridge=NoWriteBridge(), snapshot=sample_snapshot(), key="x")
+        service = TalkbackService(bridge=NoWriteBridge(), snapshot=sample_snapshot(), key="x")
         self.assertEqual(service.process({"text": ""})["kind"], "error")
 
     def test_pan_readback_reports_live_display_units(self) -> None:
@@ -379,6 +379,8 @@ class DaemonDecisionTests(unittest.TestCase):
 
             def run(self, arguments):
                 arguments = list(arguments)
+                if "--api-session-context" in arguments:
+                    return BridgeResult((Ack("api_session_context", arguments[-1], {"song": {}, "selected": {"track": {"path": "live_set tracks 0", "name": "Pad"}}}),), 1, 0, False)
                 if "--api-get" in arguments:
                     at = arguments.index("--api-get")
                     return BridgeResult((Ack("api_get", arguments[at + 3], "Pad", arguments[at + 1], "name"),), 1, 0, False)
@@ -393,7 +395,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 shown = "20L" if self.value == -0.4 else "unexpected"
                 return BridgeResult((Ack("api_call", arguments[at + 4], shown, arguments[at + 1], "str_for_value"),), 1, 0, False)
 
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=PanBridge(), snapshot=sample_snapshot(), key="x",
             requester=lambda _payload, _key: response("pan", "t0", "set"),
         )
@@ -423,7 +425,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 active = replace(snapshot.tracks[1], **{field: True})
                 snapshot = replace(snapshot, tracks=(snapshot.tracks[0], active, snapshot.tracks[2]))
                 bridge = ReleaseBridge()
-                service = LiveJevService(
+                service = TalkbackService(
                     bridge=bridge, snapshot=snapshot, key="x",
                     requester=lambda _payload, _key, selected=action: response(selected, "none", track_conf=0.2),
                 )
@@ -437,7 +439,7 @@ class DaemonDecisionTests(unittest.TestCase):
             with self.subTest(active_indexes=active_indexes):
                 snapshot = sample_snapshot()
                 tracks = tuple(replace(track, mute=track.index in active_indexes) for track in snapshot.tracks)
-                service = LiveJevService(
+                service = TalkbackService(
                     bridge=NoWriteBridge(), snapshot=replace(snapshot, tracks=tracks), key="x",
                     requester=lambda _payload, _key: response("unmute", "none", track_conf=0.2),
                 )
@@ -447,7 +449,7 @@ class DaemonDecisionTests(unittest.TestCase):
 
     def test_invalid_unit_is_treated_as_missing_number(self) -> None:
         bridge = NoWriteBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -466,7 +468,7 @@ class DaemonDecisionTests(unittest.TestCase):
         track = replace(snapshot.tracks[0], devices=(Device(0, "Huge", params, "live_set tracks 0 devices 0"),))
         snapshot = replace(snapshot, tracks=(track, *snapshot.tracks[1:]))
         result = interpret_response(snapshot, "つまみを上げて", response("param", "t0", "up_small", param="none", param_conf=0.2))
-        service = LiveJevService(bridge=NoWriteBridge(), snapshot=snapshot, key="x")
+        service = TalkbackService(bridge=NoWriteBridge(), snapshot=snapshot, key="x")
         service.pending = Pending(result, "param")
         self.assertIsNone(service._fill_pending("P250"))
 
@@ -499,7 +501,7 @@ class DaemonDecisionTests(unittest.TestCase):
             response("none", "none", "none", action_conf=0.1, track_conf=0.2, refers_previous=0.9),
         ])
         bridge = VolumeBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -528,7 +530,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return BridgeResult((Ack("api_get", "read", 1, "live_set tracks 2", "mute"),), 5, 0, False)
 
         bridge = TimeoutThenReadBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -559,7 +561,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return result
 
         bridge = AcceptedWriteThenReadFailure()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -597,7 +599,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return BridgeResult((Ack("api_mixer_status", arguments[at + 2], mixer, "live_set tracks 0"),), 2, 0, False)
 
         bridge = VolumeBridge()
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=bridge,
             snapshot=sample_snapshot(),
             key="x",
@@ -631,7 +633,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return BridgeResult((), 1, 0, False)
 
         bridge = ExactBridge()
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda _p, _k: response("volume", "t0", "set"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda _p, _k: response("volume", "t0", "set"))
         answer = service.process({"text": "パッドを-30dBに"})
         self.assertEqual(answer["kind"], "result")
         self.assertEqual(sum("--api-parameter-set" in call for call in bridge.calls), 1)
@@ -659,7 +661,7 @@ class DaemonDecisionTests(unittest.TestCase):
                     return BridgeResult((), 1, -1, True)
                 return BridgeResult((), 1, 0, False)
 
-        service = LiveJevService(
+        service = TalkbackService(
             bridge=MissingMixerBridge(),
             snapshot=sample_snapshot(),
             key="x",
@@ -675,7 +677,7 @@ class DaemonDecisionTests(unittest.TestCase):
         for phrase in ("undo", "undo that", "take that back", "アンドゥ", "元に戻して", "取り消して"):
             with self.subTest(phrase=phrase):
                 bridge = StatefulLive()
-                service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("mute", "t0"))
+                service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("mute", "t0"))
                 self.assertEqual(service.process({"text": "mute Pad"})["kind"], "result")
                 self.assertEqual(service.process({"text": phrase})["kind"], "result")
                 self.assertFalse(bridge.state[(0, "mute")])
@@ -685,7 +687,7 @@ class DaemonDecisionTests(unittest.TestCase):
         from tests.support import StatefulLive
 
         bridge = StatefulLive()
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("mute", "t0"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("mute", "t0"))
         service.process({"text": "mute Pad"})
         writes = sum("--api-set" in call for call in bridge.calls)
         bridge.replace_track(0, "Replacement")
@@ -698,7 +700,7 @@ class DaemonDecisionTests(unittest.TestCase):
         from tests.support import StatefulLive
 
         bridge = StatefulLive(ignore_writes=True)
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: self.fail("Jev called"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: self.fail("Jev called"))
         answer = service.process({"text": "mute all"})
         self.assertNotEqual(answer["kind"], "result")
         self.assertEqual(bridge.flags("mute"), {"Pad": False, "Bass": False, "Drums": False})
@@ -708,7 +710,7 @@ class DaemonDecisionTests(unittest.TestCase):
 
         bridge = StatefulLive()
         bridge.state[(1, "solo")] = True
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: self.fail("Jev called"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: self.fail("Jev called"))
         answer = service.process({"text": "solo only Pad"})
         self.assertEqual(answer["kind"], "result")
         self.assertEqual(bridge.flags("solo"), {"Pad": True, "Bass": False, "Drums": False})
@@ -718,7 +720,7 @@ class DaemonDecisionTests(unittest.TestCase):
 
         pan_bridge = StatefulLive()
         pan_bridge.values[(0, "panning")] = 0.4
-        pan_service = LiveJevService(bridge=pan_bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("pan", "t0", "set"))
+        pan_service = TalkbackService(bridge=pan_bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("pan", "t0", "set"))
         self.assertEqual(pan_service.process({"text": "Padを左20"})["kind"], "result")
         self.assertEqual(pan_service.process({"cmd": "undo"})["kind"], "result")
         self.assertAlmostEqual(pan_bridge.values[(0, "panning")], 0.4)
@@ -727,14 +729,14 @@ class DaemonDecisionTests(unittest.TestCase):
         snapshot = replace(snapshot, tracks=tuple(replace(track, sends=(0.2,)) for track in snapshot.tracks), returns=("Verb",))
         send_bridge = StatefulLive()
         send_bridge.sends[(0, 0)] = 0.7
-        send_service = LiveJevService(bridge=send_bridge, snapshot=snapshot, key="x", requester=lambda *_: self.fail("Jev called"))
+        send_service = TalkbackService(bridge=send_bridge, snapshot=snapshot, key="x", requester=lambda *_: self.fail("Jev called"))
         self.assertEqual(send_service.process({"text": "Pad send A to 50%"})["kind"], "result")
         self.assertEqual(send_service.process({"cmd": "undo"})["kind"], "result")
         self.assertAlmostEqual(send_bridge.sends[(0, 0)], 0.7)
 
         param_bridge = StatefulLive()
         param_bridge.parameters["live_set tracks 0 devices 0 parameters 0"] = 0.7
-        param_service = LiveJevService(bridge=param_bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("param", "t0", "set", param="d0p0"))
+        param_service = TalkbackService(bridge=param_bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("param", "t0", "set", param="d0p0"))
         self.assertEqual(param_service.process({"text": "PadのDry/Wetを80%に"})["kind"], "result")
         self.assertEqual(param_service.process({"cmd": "undo"})["kind"], "result")
         self.assertAlmostEqual(param_bridge.parameters["live_set tracks 0 devices 0 parameters 0"], 0.7)
@@ -750,7 +752,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return result
 
         bridge = ReplaceDuringValueRead()
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("mute", "t0"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("mute", "t0"))
         with self.assertRaises(StaleSnapshot):
             service._execute_now(_local_intent(Action.MUTE, track=0), None, 0, 0, time.perf_counter(), "mute Pad", None)
         self.assertFalse(bridge.state[(0, "mute")])
@@ -766,7 +768,7 @@ class DaemonDecisionTests(unittest.TestCase):
                 return result
 
         bridge = RaiseAfterMultiWrite()
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: self.fail("Jev called"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: self.fail("Jev called"))
         answer = service.process({"text": "mute all"})
         self.assertEqual(answer["kind"], "error")
         self.assertEqual(bridge.flags("mute"), {"Pad": False, "Bass": False, "Drums": False})
@@ -777,7 +779,7 @@ class DaemonDecisionTests(unittest.TestCase):
         bridge = StatefulLive()
         bridge.inject_fault("set", "ok")
         bridge.inject_fault("set", "error")
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: self.fail("Jev called"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: self.fail("Jev called"))
         answer = service.process({"text": "mute Pad and solo Bass"})
         self.assertEqual(answer["kind"], "error")
         undo = service.process({"cmd": "undo"})
@@ -797,7 +799,7 @@ class DaemonDecisionTests(unittest.TestCase):
 
         bridge = MissingParameters()
         bridge.parameters["live_set tracks 0 devices 0 parameters 0"] = 0.7
-        service = LiveJevService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("param", "t0", "set", param="d0p0"))
+        service = TalkbackService(bridge=bridge, snapshot=sample_snapshot(), key="x", requester=lambda *_: response("param", "t0", "set", param="d0p0"))
         answer = service.process({"text": "PadのDry/Wetを80%に"})
         self.assertEqual(answer["kind"], "error")
         self.assertFalse(any("--api-parameter-set" in call for call in bridge.calls))
@@ -808,7 +810,7 @@ class DaemonDecisionTests(unittest.TestCase):
 
         snapshot = replace(sample_snapshot(), tracks=tuple(replace(track, sends=(0.0,)) for track in sample_snapshot().tracks), returns=("Verb",))
         bridge = StatefulLive(ignore_writes=True)
-        service = LiveJevService(bridge=bridge, snapshot=snapshot, key="x", requester=lambda *_: self.fail("Jev called"))
+        service = TalkbackService(bridge=bridge, snapshot=snapshot, key="x", requester=lambda *_: self.fail("Jev called"))
         answer = service.process({"text": "Pad send A to 50%"})
         self.assertNotEqual(answer["kind"], "result")
         self.assertEqual(bridge.sends[(0, 0)], 0.0)
@@ -819,7 +821,7 @@ class DaemonDecisionTests(unittest.TestCase):
         snapshot = replace(sample_snapshot(), tracks=tuple(replace(track, sends=(0.49995,)) for track in sample_snapshot().tracks), returns=("Verb",))
         bridge = StatefulLive()
         bridge.sends[(0, 0)] = 0.49995
-        service = LiveJevService(bridge=bridge, snapshot=snapshot, key="x", requester=lambda *_: self.fail("Jev called"))
+        service = TalkbackService(bridge=bridge, snapshot=snapshot, key="x", requester=lambda *_: self.fail("Jev called"))
         self.assertEqual(service.process({"text": "Pad send A to 50%"})["kind"], "result")
         self.assertEqual(service.process({"cmd": "undo"})["kind"], "result")
         self.assertEqual(bridge.sends[(0, 0)], 0.49995)
@@ -831,7 +833,7 @@ class DaemonDecisionTests(unittest.TestCase):
         bridge = StatefulLive()
         bridge.sends[(0, 0)] = 0.5
         bridge.parameters["live_set tracks 0 devices 0 parameters 0"] = 0.25
-        service = LiveJevService(bridge=bridge, snapshot=snapshot, key="x", requester=lambda *_: response("param", "t0", "set", param="d0p0"))
+        service = TalkbackService(bridge=bridge, snapshot=snapshot, key="x", requester=lambda *_: response("param", "t0", "set", param="d0p0"))
         marker = object()
         service.previous = marker
         for text in ("Pad send A to 50%", "PadのDry/Wetを25%に", "set tempo to 120"):

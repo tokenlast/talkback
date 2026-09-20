@@ -1,12 +1,12 @@
 #!/opt/homebrew/bin/python3.13
-"""Provide one-shot and interactive modes for Live Jev."""
+"""Provide one-shot and interactive modes for Talkback."""
 
 from __future__ import annotations
 
 import argparse
 import json
 
-from daemon import LiveJevService
+from daemon import TalkbackService
 
 
 VERSION = "1.01"
@@ -39,11 +39,11 @@ def _print(response: dict[str, object]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="日本語の一言で Ableton Live を操作します")
-    parser.add_argument("--version", action="version", version=f"Live Jev {VERSION}")
+    parser.add_argument("--version", action="version", version=f"Talkback {VERSION}")
     parser.add_argument("text", nargs="*")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
-    service = LiveJevService(verbose=args.verbose)
+    service = TalkbackService(verbose=args.verbose)
     startup = service.start()
     if args.text:
         text = " ".join(args.text)

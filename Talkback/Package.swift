@@ -1,18 +1,18 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
 let package = Package(
-    name: "LiveJev",
+    name: "Talkback",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v26)
     ],
     products: [
-        .executable(name: "LiveJev", targets: ["LiveJev"])
+        .executable(name: "Talkback", targets: ["Talkback"])
     ],
     targets: [
         .executableTarget(
-            name: "LiveJev",
+            name: "Talkback",
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
@@ -20,7 +20,8 @@ let package = Package(
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("Speech")
             ]
-        )
+        ),
+        .testTarget(name: "TalkbackTests", dependencies: ["Talkback"])
     ],
     swiftLanguageModes: [.v6]
 )

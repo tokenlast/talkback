@@ -21,8 +21,8 @@ import uuid
 PYTHON = "/opt/homebrew/bin/python3.13"
 def _udp_bridge_root() -> Path:
     # The legacy UDP bridge (codex-live-bridge) is optional and lives outside this project.
-    # LIVE_JEV_UDP_BRIDGE_ROOT overrides the location; otherwise look for a sibling checkout.
-    configured = os.environ.get("LIVE_JEV_UDP_BRIDGE_ROOT", "").strip()
+    # TALKBACK_UDP_BRIDGE_ROOT overrides the location; otherwise look for a sibling checkout.
+    configured = os.environ.get("TALKBACK_UDP_BRIDGE_ROOT", "").strip()
     if configured:
         return Path(configured).expanduser()
     here = Path(__file__).resolve().parent
@@ -65,14 +65,14 @@ class _LazyModule:
         if module is None:
             path = self.__dict__["_path"]
             if not path.exists():
-                raise BridgeError("Liveに繋がりません（Live の設定でコントロールサーフェス LiveJev を有効にしてください）")
+                raise BridgeError("Liveに繋がりません（Live の設定でコントロールサーフェス Talkback を有効にしてください）")
             module = _load_module(self.__dict__["_name"], path)
             self.__dict__["_module"] = module
         return getattr(module, attribute)
 
 
-_UPSTREAM = _LazyModule("_live_jev_ableton_udp_bridge", UPSTREAM_PY)
-_LIVE_WRAPPER = _LazyModule("_live_jev_live_wrapper", LIVE_PY)
+_UPSTREAM = _LazyModule("_talkback_ableton_udp_bridge", UPSTREAM_PY)
+_LIVE_WRAPPER = _LazyModule("_talkback_live_wrapper", LIVE_PY)
 
 
 @dataclass(frozen=True)
@@ -117,11 +117,11 @@ SCENE_CALL_METHODS = frozenset({"fire"})
 
 TRACK_GET_PROPS = frozenset({"name", "mute", "solo", "arm", "current_monitoring_state", "fold_state"})
 SONG_GET_PROPS = frozenset({
-    "tempo", "is_playing", "loop", "metronome", "session_record", "overdub",
+    "tempo", "is_playing", "loop", "metronome", "session_record", "record_mode", "overdub",
     "current_song_time", "signature_numerator", "signature_denominator",
 })
 TRACK_SET_PROPS = frozenset({"mute", "solo", "arm", "current_monitoring_state", "fold_state"})
-SONG_SET_PROPS = frozenset({"loop", "metronome", "session_record", "overdub", "current_song_time"})
+SONG_SET_PROPS = frozenset({"loop", "metronome", "session_record", "record_mode", "overdub", "current_song_time"})
 SONG_CALL_METHODS = frozenset({
     "start_playing", "stop_playing", "continue_playing", "undo", "redo",
     "capture_midi", "tap_tempo", "stop_all_clips",
@@ -739,7 +739,7 @@ def make_bridge_client(
     *,
     verbose: bool = False,
 ) -> Any:
-    mode = (transport if transport is not None else os.environ.get("LIVE_JEV_TRANSPORT", "auto")).strip().lower() or "auto"
+    mode = (transport if transport is not None else os.environ.get("TALKBACK_TRANSPORT", "auto")).strip().lower() or "auto"
     if mode == "udp":
         return PersistentBridgeClient(verbose=verbose)
     from script_bridge_client import ScriptBridgeClient
@@ -753,4 +753,4 @@ def make_bridge_client(
             return script
         script.close()
         return PersistentBridgeClient(verbose=verbose)
-    raise ValueError("LIVE_JEV_TRANSPORT must be udp, script, or auto")
+    raise ValueError("TALKBACK_TRANSPORT must be udp, script, or auto")

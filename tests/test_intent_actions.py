@@ -9,7 +9,7 @@ from dataclasses import replace
 
 from actions import ACTIONS
 from bridge_client import Ack, BridgeResult
-from daemon import LiveJevService
+from daemon import TalkbackService
 from intent import ACTION_CRITERIA, Action, Step, build_request, candidate_params, interpret_response, parse_local, parse_number
 from tests.support import response, sample_snapshot
 from snapshot import Device, Track
@@ -142,7 +142,7 @@ class IntentAndActionsTests(unittest.TestCase):
                             return BridgeResult((Ack("api_mixer_status", arguments[at + 2], payload, "live_set master_track"),), 1, 0, False)
 
                     bridge = DbBridge()
-                    service = LiveJevService(bridge=bridge, snapshot=self.snapshot, key="x", requester=lambda _p, _k: mocked)
+                    service = TalkbackService(bridge=bridge, snapshot=self.snapshot, key="x", requester=lambda _p, _k: mocked)
                     with mock.patch("daemon.request_id", side_effect=lambda kind: kind):
                         self.assertEqual(service.process({"text": utterance})["kind"], "result")
                     # The search probes str_for_value only; the fader is written exactly once, after the last probe.
@@ -163,7 +163,7 @@ class IntentAndActionsTests(unittest.TestCase):
                             raise AssertionError("info must not call live.py")
 
                     bridge = NoBridge()
-                    service = LiveJevService(bridge=bridge, snapshot=self.snapshot, key="x", requester=lambda _p, _k: mocked)
+                    service = TalkbackService(bridge=bridge, snapshot=self.snapshot, key="x", requester=lambda _p, _k: mocked)
                     self.assertEqual(service.process({"text": utterance})["kind"], "info")
                     self.assertEqual(bridge.calls, expected_arguments)
                     continue
