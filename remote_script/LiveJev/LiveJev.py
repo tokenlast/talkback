@@ -73,6 +73,18 @@ class LiveJev(ControlSurface):
         if self._running and self._timer is None:
             self.schedule_message(1, self._poll_and_rearm)
 
+    def disconnect(self):
+        self._running = False
+        if self._timer is not None:
+            try:
+                self._timer.stop()
+            except Exception:
+                pass
+            self._timer = None
+        self._pump.close()
+        self.log_message("LiveJev: stopped")
+        super().disconnect()
+
     def _create_listener(self):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
