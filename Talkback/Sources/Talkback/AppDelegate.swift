@@ -49,10 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureMenuBar() {
         let item = NSStatusBar.system.statusItem(withLength: 36)
-        item.button?.image = NSImage(
-            systemSymbolName: "waveform",
-            accessibilityDescription: "Talkback"
-        )
+        item.button?.image = TalkbackMark.badge(listening: panelController?.listeningEnabled == true)
         item.menu = makeStatusMenu()
         statusItem = item
     }
@@ -144,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let panelController else { return }
         listeningItem?.state = panelController.listeningEnabled ? .on : .off
         statusItem?.button?.toolTip = "Talkback — \(panelController.voiceStatus)"
-        statusItem?.button?.image = Self.statusBadge(listening: panelController.listeningEnabled)
+        statusItem?.button?.image = TalkbackMark.badge(listening: panelController.listeningEnabled)
         statusItem?.button?.setAccessibilityLabel("Talkback — \(panelController.voiceStatus)")
         onboarding?.refreshVoice()
     }
@@ -198,27 +195,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func sendCurrentPhrase() { panelController?.sendCurrentPhrase() }
     @objc private func discardCurrentPhrase() { panelController?.discardCurrentPhrase() }
-
-    private static func statusBadge(listening: Bool) -> NSImage {
-        // The chosen mic artwork will replace the neutral waveform here.
-        let image = NSImage(size: NSSize(width: 32, height: 20), flipped: false) { rect in
-            (listening ? NSColor(calibratedRed: 1, green: 0.79, blue: 0.22, alpha: 1) : .lightGray).setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: 9, yRadius: 9).fill()
-            NSColor.black.setStroke()
-            for (index, height) in [CGFloat(5), 10, 7, 12, 5].enumerated() {
-                let path = NSBezierPath()
-                path.lineWidth = 1.6
-                path.lineCapStyle = .round
-                let x = CGFloat(10 + index * 3)
-                path.move(to: NSPoint(x: x, y: 10 - height / 2))
-                path.line(to: NSPoint(x: x, y: 10 + height / 2))
-                path.stroke()
-            }
-            return true
-        }
-        image.isTemplate = false
-        return image
-    }
 
     @objc private func toggleLoginItem() {
         do {

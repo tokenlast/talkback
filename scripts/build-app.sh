@@ -31,7 +31,8 @@ BIN="$BUILD_DIR/release/Talkback"
 say "2/5 Creating the icon"
 ICONSET="$BUILD_DIR/AppIcon.iconset"
 trash_existing "$ICONSET"; mkdir -p "$ICONSET"
-"$PYTHON" "$SCRIPT_DIR/make_icon.py" "$BUILD_DIR/icon-1024.png" >/dev/null
+xcrun swiftc "$PKG_DIR/Sources/Talkback/TalkbackMark.swift" "$SCRIPT_DIR/render_icon.swift" -o "$BUILD_DIR/render-icon"
+"$BUILD_DIR/render-icon" "$BUILD_DIR/icon-1024.png"
 for px in 16 32 128 256 512; do
   sips -z "$px" "$px" "$BUILD_DIR/icon-1024.png" --out "$ICONSET/icon_${px}x${px}.png" >/dev/null
   dbl=$((px * 2))
