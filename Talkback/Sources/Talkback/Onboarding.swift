@@ -15,6 +15,8 @@ final class Onboarding: NSObject, NSWindowDelegate {
     private let cloudButton = NSButton(checkboxWithTitle: "Use cloud interpretation for unfamiliar commands", target: nil, action: nil)
     private let voiceLabel = NSTextField(wrappingLabelWithString: "")
     private let connectionLabel = NSTextField(labelWithString: "Checking Live…")
+    private let transcriptView = NSTextView()
+    private let commandResult = NSTextField(wrappingLabelWithString: "")
     private let window: NSWindow
     private var timer: Timer?
     private var states: [State] = [.pending, .pending, .pending, .pending]
@@ -38,7 +40,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
     init(viewModel: ViewModel, voice: PanelController) {
         self.viewModel = viewModel
         self.voice = voice
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 460),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 640),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
         window.delegate = self
@@ -139,10 +141,45 @@ final class Onboarding: NSObject, NSWindowDelegate {
         voiceStack.spacing = 8
         stack.addArrangedSubview(voiceStack)
         voiceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        let transcriptTitle = NSTextField(labelWithString: "Transcript")
+        transcriptTitle.font = NSFont(name: "Helvetica", size: 14)
+        let clear = NSButton(title: "Clear", target: self, action: #selector(clearTranscript))
+        clear.isBordered = false
+        clear.font = NSFont(name: "Helvetica", size: 13)
+        clear.setAccessibilityLabel("Clear transcript")
+        stack.addArrangedSubview(NSStackView(views: [transcriptTitle, clear]))
+        let transcriptScroll = NSScrollView()
+        transcriptScroll.hasVerticalScroller = true
+        transcriptScroll.drawsBackground = false
+        transcriptView.isEditable = false
+        transcriptView.isSelectable = true
+        transcriptView.isRichText = false
+        transcriptView.drawsBackground = false
+        transcriptView.font = NSFont(name: "Helvetica", size: 13)
+        transcriptView.textColor = .black
+        transcriptView.textContainerInset = .zero
+        transcriptView.textContainer?.lineFragmentPadding = 0
+        transcriptView.isVerticallyResizable = true
+        transcriptView.isHorizontallyResizable = false
+        transcriptView.autoresizingMask = [.width]
+        transcriptView.textContainer?.widthTracksTextView = true
+        transcriptView.setAccessibilityLabel("Live transcript")
+        transcriptScroll.documentView = transcriptView
+        stack.addArrangedSubview(transcriptScroll)
+        transcriptScroll.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        transcriptScroll.heightAnchor.constraint(equalToConstant: 110).isActive = true
+        let privacy = NSTextField(labelWithString: "Live preview and last phrase · not saved")
+        privacy.font = NSFont(name: "Helvetica", size: 11)
+        stack.addArrangedSubview(privacy)
+        commandResult.font = NSFont(name: "Helvetica", size: 12)
+        commandResult.isSelectable = true
+        commandResult.setAccessibilityLabel("Latest command result")
+        stack.addArrangedSubview(commandResult)
+        commandResult.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         stack.addArrangedSubview(preferences)
         preferences.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         preferences.onAdvancedChange = { [weak self] expanded in
-            self?.window.setContentSize(NSSize(width: 560, height: expanded ? 760 : 460))
+            self?.window.setContentSize(NSSize(width: 560, height: expanded ? 760 : 640))
         }
         for index in 0..<4 {
             let glyph = NSImageView()
@@ -288,7 +325,19 @@ final class Onboarding: NSObject, NSWindowDelegate {
         listeningButton.state = voice.listeningEnabled ? .on : .off
         voiceLabel.stringValue = voice.voiceStatus
         cloudButton.state = UserDefaults.standard.bool(forKey: "TalkbackAllowJev") ? .on : .off
+        refreshTranscript()
+        if let result = viewModel.results.first {
+            let target = result.decision?.track.map { "Track: \($0)\n" } ?? ""
+            commandResult.stringValue = target + result.line
+        } else { commandResult.stringValue = "" }
     }
+
+    func refreshTranscript() {
+        let value = voice.transcriptPreview.display
+        if transcriptView.string != value { transcriptView.string = value }
+    }
+
+    @objc private func clearTranscript() { voice.clearTranscriptPreview() }
 
     @objc private func toggleListening() { voice.setListening(listeningButton.state == .on) }
 

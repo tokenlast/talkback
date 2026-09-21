@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureMenuBar()
         panelController.onVoiceStateChange = { [weak self] in self?.updateVoiceState() }
         panelController.onResultChange = { [weak self] in self?.updateResult() }
+        panelController.onTranscriptChange = { [weak self] in self?.onboarding?.refreshTranscript() }
 
         let hotKey = HotKey { [weak self] in self?.handleShortcut() }
         self.hotKey = hotKey
@@ -62,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         resultItem?.isEnabled = false
         menu.addItem(withTitle: "Send current phrase", action: #selector(sendCurrentPhrase), keyEquivalent: "")
         menu.addItem(withTitle: "Discard current phrase", action: #selector(discardCurrentPhrase), keyEquivalent: "")
+        menu.addItem(withTitle: "Transcript…", action: #selector(showSetup), keyEquivalent: "")
         menu.addItem(withTitle: viewModel.text(.setup), action: #selector(showSetup), keyEquivalent: "")
         let loginItem = menu.addItem(
             withTitle: viewModel.text(.launchAtLogin),

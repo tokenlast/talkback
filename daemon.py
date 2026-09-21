@@ -1259,15 +1259,8 @@ class TalkbackService:
             return result
         owner = next((track for track in self.snapshot.tracks if track.index == intent.track), None) if isinstance(intent.track, int) else None
         matches = [device for device in owner.devices if device.name.casefold() == intent.device_name.casefold()] if owner else []
-        if not matches and intent.named_evidence < TRACK_UNSTATED_MAX:
-            global_matches = [
-                (track, device) for track in self.snapshot.tracks if not is_bridge_track(track)
-                for device in track.devices if device.name.casefold() == intent.device_name.casefold()
-            ]
-            if len(global_matches) == 1:
-                owner, device = global_matches[0]
-                matches = [device]
-                intent = replace(intent, track=owner.index, track_conf=1.0, target_origin=TargetOrigin.OWNER)
+        # A missing effect on the resolved track is not permission to operate on
+        # another track, even when only one other track contains that effect.
         if len(matches) != 1:
             return replace(result, intent=replace(intent, device=None, device_conf=0.0, param=None, param_conf=0.0))
         device = matches[0]

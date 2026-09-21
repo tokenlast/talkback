@@ -240,6 +240,8 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     private let viewModel: ViewModel
     private let dictation = DictationController()
     var onVoiceStateChange: (() -> Void)?
+    var onTranscriptChange: (() -> Void)?
+    private(set) var transcriptPreview = VoiceTranscriptPreview()
     private(set) var voiceStatus = "Off"
     var onResultChange: (() -> Void)?
     private var manualEntry = false
@@ -371,6 +373,8 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         utteranceContext = nil
         if dictation.isListening || dictation.isPreparing { dictation.stop() }
         voiceStatus = "Paused while typing"
+        transcriptPreview.update("")
+        onTranscriptChange?()
         onVoiceStateChange?()
     }
 
@@ -458,6 +462,8 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
     private func configureDictation() {
         dictation.onTranscript = { [weak self] text in
             guard let self else { return }
+            self.transcriptPreview.update(text)
+            self.onTranscriptChange?()
             if self.utteranceContext == nil { self.utteranceContext = self.canActOnVoice }
             VoiceTrace.write("context allowed=\(self.utteranceContext == true) frontLive=\(self.canActOnVoice)")
             guard self.isPanelVisible, !self.manualEntry else { return }
@@ -467,6 +473,12 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         dictation.onSilence = { [weak self] text in
             guard let self else { return }
             let admittedContext = self.utteranceContext == true && self.canActOnVoice
+            let outcome = !admittedContext ? "Not sent — Ableton was not active throughout"
+                : self.manualEntry ? "Not sent — typing"
+                : self.viewModel.hasPendingConfirmation ? "Not sent — confirmation pending"
+                : "Sent for command processing"
+            self.transcriptPreview.finish(text, outcome: outcome)
+            self.onTranscriptChange?()
             VoiceTrace.write("admission context=\(admittedContext) chars=\(text.count) typing=\(self.manualEntry) pending=\(self.viewModel.hasPendingConfirmation)")
             self.utteranceContext = nil
             if !self.manualEntry { self.inputField.stringValue = "" }
@@ -485,6 +497,8 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         dictation.onError = { [weak self] error in
             guard let self else { return }
             Log.shared.write("dictation unavailable: \(error)")
+            self.transcriptPreview.update("")
+            self.onTranscriptChange?()
             self.utteranceContext = nil
             self.voiceStatus = error + " Retrying…"
             self.onVoiceStateChange?()
@@ -510,7 +524,10 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
         UserDefaults.standard.set(enabled, forKey: "TalkbackListeningEnabled")
         manualEntry = false
         utteranceContext = nil
-        if !enabled { dictation.stop(); voiceStatus = "Off" }
+        if !enabled {
+            dictation.stop(); voiceStatus = "Off"
+            transcriptPreview.update(""); onTranscriptChange?()
+        }
         reconcileListening()
         onVoiceStateChange?()
     }
@@ -523,8 +540,15 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
 
     func sendCurrentPhrase() { dictation.finish() }
 
+    func clearTranscriptPreview() {
+        transcriptPreview.clear()
+        onTranscriptChange?()
+    }
+
     func discardCurrentPhrase() {
         dictation.stop()
+        transcriptPreview.update("")
+        onTranscriptChange?()
         utteranceContext = nil
         if let proposal = viewModel.results.first, proposal.kind == .ask || proposal.kind == .confirm {
             viewModel.expireProposal(proposal)
@@ -534,6 +558,8 @@ final class PanelController: NSWindowController, NSTextFieldDelegate, NSWindowDe
 
     func restartSpeechLanguage() {
         dictation.stop()
+        transcriptPreview.update("")
+        onTranscriptChange?()
         utteranceContext = nil
         reconcileListening()
     }

@@ -38,6 +38,11 @@ script as a backup, but quit the old app so it does not own the same shortcut.
 
 ## Configure listening
 
+Choose **Transcript…** from Talkback's menu-bar menu to see live recognition, the
+last finalized phrase, whether it was sent, and the latest command result/track.
+The selectable preview is bounded and memory-only; **Clear** clears it and quitting
+the app forgets it. It does not enable transcript logging or change Live's foreground guard.
+
 Allow Talkback's microphone request. The first start may download Apple's local
 speech model. Recognition uses Apple's on-device `DictationTranscriber` in
 short-form mode, with music-vocabulary hints. No audio is sent to a speech service.

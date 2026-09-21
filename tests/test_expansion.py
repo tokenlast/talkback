@@ -847,6 +847,7 @@ class SelectedTrackTests(unittest.TestCase):
         answers = self._stated(response("device_off", "none", track_conf=0.54), 0.0)
         answers["answers"]["device_t0"] = choice("d0", 0.38)
         bridge, service = self._service(lambda *_: answers)
+        bridge.selected_index = 0  # Match a device only within the user's selected track.
         answer = service.process({"id": "1", "text": "Reverbをオフ"})
         self.assertEqual((answer["kind"], answer["decision"]["track"]), ("result", "Pad"), answer)
         ghost = self._stated(response("device_off", "none", track_conf=0.8), 0.9)
@@ -1144,11 +1145,11 @@ class SelectedTrackTests(unittest.TestCase):
         self.assertEqual(answer["kind"], "result", answer)
         self.assertTrue(any("live_set tracks 1 devices 0 parameters 0" in call for call in bridge.calls))
 
-    def test_device_without_track_uses_the_only_owner_when_selected_track_lacks_it(self) -> None:
+    def test_device_without_track_never_switches_away_from_selected_track(self) -> None:
         bridge, service = self._service(lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
         answer = service.process({"id": "device", "text": "turn Reverb off"})
-        self.assertEqual(answer["kind"], "result", answer)
-        self.assertTrue(any("live_set tracks 0 devices 0 parameters 0" in call for call in bridge.calls))
+        self.assertIn(answer["kind"], {"ask", "error"}, answer)
+        self.assertFalse(any("--write" in call or "--api-parameter-set" in call for call in bridge.calls))
         bridge, service = self._service(lambda *_: (_ for _ in ()).throw(AssertionError("Jev")))
         named = service.process({"id": "device", "text": "turn Reverb off on Bass"})
         self.assertEqual(named["kind"], "error", named)
@@ -1310,7 +1311,9 @@ class SelectedTrackTests(unittest.TestCase):
         import daemon as D
         from snapshot import Device
 
-        cases = (("Divaを入れて", 1), ("insert Diva", 1), ("BassにDivaを入れて", 1), ("insert Diva on Bass", 1))
+        cases = (("Divaを入れて", 1), ("insert Diva", 1), ("BassにDivaを入れて", 1), ("insert Diva on Bass", 1),
+                 ("add Diva to this track", 1), ("add Diva to this", 1),
+                 ("add Diva to track 1", 0), ("add Diva to track 3", 2))
         for index, (text, expected_track) in enumerate(cases):
             base = _snapshot_with_song()
             loaded = replace(base, tracks=tuple(

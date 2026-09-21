@@ -14,7 +14,20 @@ Python coverage includes the local grammar, target checks, undo/rollback, socket
 protocol, voice admission, command mappings, recording modes, and group-placement
 guards. One inherited test is skipped because the upstream private publishing
 script is intentionally absent from the public repository.
-Latest Python run: 352 tests, zero failures, one skipped. Last native run: 21 tests passed.
+Latest Python run: 352 tests, zero failures, one skipped. Last native run: 24 tests passed.
+
+The memory-only transcript view has tests for replacing partial text, retaining the
+last nonempty final phrase, rejected phrases, clearing, and bounded text storage.
+Selected-track device control no longer falls back to a different track merely
+because that track contains the only matching effect. Mocked insertion regressions
+cover “this track”, “this”, track 1 and track 3 while a different track is selected.
+This corrects one targeting fallback; intermittent real effect insertion remains
+an open acceptance issue, now inspectable through the transcript and result view.
+Installed UI QA displayed a harmless speaker-played “Talkback transcript check”
+through the physical microphone, with “Not sent — Ableton was not active throughout”.
+Clear removed the phrase. This verifies recognition-to-display and the foreground
+guard, not a successful Live mutation. The installed signature and bundled daemon
+matched the tested build; the settings view retained its plain Web1 layout.
 
 The reported phrase “Can you start a new track in instruments?” is covered through
 voice admission, local parsing, daemon dispatch, and a mocked Live group-creation

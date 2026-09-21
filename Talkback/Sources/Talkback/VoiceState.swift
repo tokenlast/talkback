@@ -1,5 +1,24 @@
 import Foundation
 
+/// Bounded, memory-only text for the user's transcript view. Never used for dispatch.
+struct VoiceTranscriptPreview {
+    private(set) var current = ""
+    private(set) var last = ""
+    private(set) var outcome = ""
+    mutating func update(_ text: String) { current = String(text.prefix(500)) }
+    mutating func finish(_ text: String, outcome: String) {
+        current = ""
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        last = String(text.prefix(500))
+        self.outcome = outcome
+    }
+    mutating func clear() { self = Self() }
+    var display: String {
+        let live = current.isEmpty ? "Waiting for speech…" : "Hearing…\n\(current)"
+        return last.isEmpty ? live : "\(live)\n\n\(outcome)\n\(last)"
+    }
+}
+
 struct VoiceEndpoint {
     private var lastSound: TimeInterval?
     private var lastAudio: TimeInterval?
