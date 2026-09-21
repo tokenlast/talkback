@@ -39,7 +39,9 @@ script as a backup, but quit the old app so it does not own the same shortcut.
 ## Configure listening
 
 Allow Talkback's microphone request. The first start may download Apple's local
-speech model. No Accessibility permission is required for the command shortcut.
+speech model. Recognition uses Apple's on-device `DictationTranscriber` in
+short-form mode, with music-vocabulary hints. No audio is sent to a speech service.
+No Accessibility permission is required for the command shortcut.
 
 The **Microphone** chooser defaults to the Mac's built-in input, not the system
 default or Ableton's audio interface. Other inputs can be selected explicitly.

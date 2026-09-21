@@ -63,6 +63,40 @@ These are not microphone-to-Live latency measurements and exclude the configured
 pause. This test caught an audio-timestamp-overlap defect: input now uses the
 analyzer's exact contiguous frame timeline, not rounded timestamps.
 
+### Short-command recognition repair (September 21)
+
+The previous `SpeechTranscriber` configuration misrecognized a synthetic
+“Add Operator” and returned punctuation-only results on subsequent repetitions.
+Both fast and normal-accuracy modes failed this short-phrase fixture. The new
+`DictationTranscriber` uses on-device short-form recognition, volatile previews,
+and frequent finalization. Dispatch still requires final results and foreground
+admission; uncertain previews are never executed as a fallback.
+
+Music-vocabulary context is supplied through `AnalysisContext`, without replacing
+recognized words in the command parser. Without these hints, the alternate engine
+misheard “solo” as “so” in repeated compound commands. With the hints, twenty
+consecutive “Mute this track and solo this track” fixtures passed at real-time
+delivery, including an explicit finalization request at about 0.7 seconds of silence
+while the remaining audio continued streaming. This is synthetic recognition proof,
+not a measurement of human-microphone-to-Live latency.
+
+The smoke harness accepts `--realtime`, `--pause-boundary`, `--operator` (five short
+Operator commands), or `--expected 'fixture text'` (five exact-text checks).
+Pause-boundary fixtures must end in two seconds of silence. Its raw result output
+is confined to explicit synthetic fixtures; the app still never logs ambient words.
+
+Final short-form configuration passed five real-time, pause-boundary repetitions
+each of “Add Operator”, “Add Operator to a new track”, “Do not delete this track”,
+and “Do not add Operator”. The local admission filter continues to reject both
+negated phrases. The real-microphone stopped-engine recovery check also passed
+with sustained resumed input. Python: 352 tests, one intentional skip, no failures;
+native: 21 passed. Installed Developer ID signature and staged/binary equality passed.
+
+Direct Operator insertion through the Live control surface was separately verified
+with explicit permission on the selected sixth track, retaining its existing effects.
+No Live edits were made during the recognition repair. Human speech through the
+installed app is still a separate acceptance gate; synthetic fixtures do not prove it.
+
 ## Real Ableton, disposable set only
 
 Open a disposable set containing a unique `LJ-TEST` marker, two additional tracks,

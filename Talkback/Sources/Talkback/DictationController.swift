@@ -59,6 +59,7 @@ final class DictationController {
                 guard self.generation == id else { return }
                 let analyzer = SpeechAnalyzer(modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .processLifetime))
                 self.analyzer = analyzer
+                try await analyzer.setContext(Self.recognitionContext())
                 try await analyzer.prepareToAnalyze(in: format)
                 guard self.generation == id else { await analyzer.cancelAndFinishNow(); return }
                 try self.begin(transcriber: transcriber, format: format, analyzer: analyzer, id: id)
@@ -126,7 +127,7 @@ final class DictationController {
         }
     }
 
-    private func begin(transcriber: SpeechTranscriber, format: AVAudioFormat, analyzer: SpeechAnalyzer, id: UUID) throws {
+    private func begin(transcriber: DictationTranscriber, format: AVAudioFormat, analyzer: SpeechAnalyzer, id: UUID) throws {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let chosenUID = UserDefaults.standard.string(forKey: "TalkbackMicrophoneUID")
@@ -320,13 +321,27 @@ final class DictationController {
         onError?(message)
     }
 
-    static func module(locale: String) async throws -> (SpeechTranscriber, AVAudioFormat) {
-        guard SpeechTranscriber.isAvailable,
-              let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: locale)) else {
+    static func recognitionContext() -> AnalysisContext {
+        let context = AnalysisContext()
+        // Vocabulary hints, not commands to execute or replacements for uncertain text.
+        context.contextualStrings[.general] = [
+            "Ableton", "Operator", "add Operator", "Serum", "Wavetable", "Analog", "Simpler", "Sampler",
+            "Drum Rack", "Instrument Rack", "MIDI", "solo", "unsolo", "mute", "unmute",
+            "arm", "disarm", "decibels", "Arrangement", "Session"
+        ]
+        return context
+    }
+
+    static func module(locale: String) async throws -> (DictationTranscriber, AVAudioFormat) {
+        guard let locale = await DictationTranscriber.supportedLocale(equivalentTo: Locale(identifier: locale)) else {
             throw VoiceError("On-device speech is unavailable for this language.")
         }
-        let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [],
-                                            reportingOptions: [.volatileResults, .fastResults], attributeOptions: [])
+        // Prefer short-form, on-device dictation for brief commands. Frequent
+        // finalization keeps safety-critical dispatch final-only.
+        let transcriber = DictationTranscriber(locale: locale, contentHints: [.shortForm],
+                                              transcriptionOptions: [],
+                                              reportingOptions: [.volatileResults, .frequentFinalization],
+                                              attributeOptions: [])
         try await AssetInventory.reserve(locale: locale)
         if await AssetInventory.status(forModules: [transcriber]) != .installed,
            let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
